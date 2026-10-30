@@ -514,11 +514,10 @@ impl Engine {
         let _g = guard(&lock);
         let p = self.db().project(project_id)?;
         let git = self.open_git(&p)?;
-        if p.autocommit && matches!(trigger, Trigger::Timer | Trigger::Watcher | Trigger::Manual | Trigger::Shutdown) {
-            if let Err(e) = crate::autocommit::auto_commit(self, &p, &git) {
+        if p.autocommit && matches!(trigger, Trigger::Timer | Trigger::Watcher | Trigger::Manual | Trigger::Shutdown)
+            && let Err(e) = crate::autocommit::auto_commit(self, &p, &git) {
                 self.log(Some(project_id), "warn", "autocommit_skipped", &format!("Commit automático não realizado: {e}"));
             }
-        }
         let (row, _state) = self.checkpoint_locked(&p, &git, trigger, &[])?;
         Ok(row)
     }
@@ -540,8 +539,8 @@ impl Engine {
             Some(h) => self.db().checkpoint_opt(&p.id, h)?,
             None => None,
         };
-        if extra_parents.is_empty() {
-            if let Some(h) = &head_row {
+        if extra_parents.is_empty()
+            && let Some(h) = &head_row {
                 let same = h.tree_oid == state.tree
                     && h.head_oid == state.head
                     && h.branch == state.branch
@@ -550,7 +549,6 @@ impl Engine {
                     return Ok((None, state));
                 }
             }
-        }
         let dev = self.device();
         let created = now_ms();
         let id = checkpoint::new_id(created);
@@ -636,11 +634,10 @@ impl Engine {
 
     fn auth_for_url(&self, url: &str) -> NetAuth {
         let mut auth = NetAuth::default();
-        if credentials::is_github_https(url) {
-            if let (Some(exe), Ok(Some(_))) = (&self.cfg.askpass_exe, self.cfg.secrets.get(credentials::GITHUB_ACCOUNT)) {
+        if credentials::is_github_https(url)
+            && let (Some(exe), Ok(Some(_))) = (&self.cfg.askpass_exe, self.cfg.secrets.get(credentials::GITHUB_ACCOUNT)) {
                 auth.askpass = Some(OsString::from(exe.as_os_str()));
             }
-        }
         auth
     }
 
@@ -843,20 +840,17 @@ impl Engine {
         if let Some(h) = &p.lineage_head {
             let mine: HashSet<String> = self.lineage_ancestors(&p.id, h)?.into_iter().collect();
             for anc in self.lineage_ancestors(&p.id, &theirs.id)? {
-                if mine.contains(&anc) {
-                    if let Some(row) = self.db().checkpoint_opt(&p.id, &anc)? {
-                        if git.has_object(&row.tree_oid) {
+                if mine.contains(&anc)
+                    && let Some(row) = self.db().checkpoint_opt(&p.id, &anc)?
+                        && git.has_object(&row.tree_oid) {
                             return Ok(row.tree_oid);
                         }
-                    }
-                }
             }
         }
-        if let (Some(a), Some(b)) = (&ours.head, &theirs.head_oid) {
-            if let Some(mb) = git.merge_base(a, b)? {
+        if let (Some(a), Some(b)) = (&ours.head, &theirs.head_oid)
+            && let Some(mb) = git.merge_base(a, b)? {
                 return git.tree_of(&mb);
             }
-        }
         git.empty_tree()
     }
 
@@ -871,12 +865,11 @@ impl Engine {
     pub fn ide_check(&self, project_id: &str) -> IdeCheck {
         let mut c = self.cfg.ide_probe.check();
         let quiet = self.settings().map(|s| s.quiet_secs).unwrap_or(120) * 1000;
-        if let Some(t) = self.last_fs_event(project_id) {
-            if now_ms() - t < quiet {
+        if let Some(t) = self.last_fs_event(project_id)
+            && now_ms() - t < quiet {
                 c.safe = false;
                 c.reason = format!("{}; arquivos modificados há menos de {}s", c.reason, quiet / 1000);
             }
-        }
         c
     }
 
@@ -1282,11 +1275,10 @@ impl Engine {
             protected.insert(c.checkpoint_id);
         }
         for op in self.db().operations(project_id, 200)? {
-            if let Some(s) = op.safety_checkpoint {
-                if op.state == "running" || op.state == "interrupted" {
+            if let Some(s) = op.safety_checkpoint
+                && (op.state == "running" || op.state == "interrupted") {
                     protected.insert(s);
                 }
-            }
         }
         if let Some(lp) = self.db().last_pushed_own(project_id, &me)? {
             protected.insert(lp.id);
@@ -1379,7 +1371,8 @@ impl Engine {
         let due = self.db().due_queue(now_ms())?;
         let mut ok = 0;
         for item in due {
-            let p = match self.db().project(&item.project_id) {
+            let found = self.db().project(&item.project_id);
+            let p = match found {
                 Ok(p) => p,
                 Err(_) => {
                     self.db().queue_done(item.id)?;
@@ -1396,8 +1389,8 @@ impl Engine {
                 "push_branch" => self.push_branch(&item.project_id, &item.payload),
                 _ => Ok(()),
             };
-            if let (Err(e), "push_branch") = (&res, item.kind.as_str()) {
-                if e.failure_kind() == FailureKind::Rejected {
+            if let (Err(e), "push_branch") = (&res, item.kind.as_str())
+                && e.failure_kind() == FailureKind::Rejected {
                     // Never forced: the remote branch moved, the user must integrate it.
                     self.db().queue_done(item.id)?;
                     self.log(
@@ -1408,7 +1401,6 @@ impl Engine {
                     );
                     continue;
                 }
-            }
             match res {
                 Ok(()) => {
                     self.db().queue_done(item.id)?;
@@ -1499,11 +1491,12 @@ impl Engine {
                         r.pushed = pr.pushed.len();
                         r.held = pr.needs_review.len() + pr.quarantined.len();
                         if r.error.is_none() {
-                            let _ = self.db().queue(Some(&p.id)).map(|q| {
-                                for i in q.iter().filter(|i| i.kind == "push") {
-                                    let _ = self.db().queue_done(i.id);
-                                }
-                            });
+                            // Bind first: the DB guard must be released before
+                            // queue_done locks it again.
+                            let queued = self.db().queue(Some(&p.id)).unwrap_or_default();
+                            for i in queued.iter().filter(|i| i.kind == "push") {
+                                let _ = self.db().queue_done(i.id);
+                            }
                         }
                     }
                     Err(e) => r.error = Some(e.to_string()),

@@ -126,11 +126,10 @@ pub fn validate_remote_url(url: &str) -> Result<()> {
         return Err(Error::Invalid("URL de remoto inválida".into()));
     }
     // `<helper>::<address>` selects a remote helper (ext::, fd::, ...).
-    if let Some(i) = lower.find("::") {
-        if i > 0 && lower[..i].chars().all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c)) {
+    if let Some(i) = lower.find("::")
+        && i > 0 && lower[..i].chars().all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c)) {
             return Err(Error::Invalid("transporte Git não permitido".into()));
         }
-    }
     Ok(())
 }
 

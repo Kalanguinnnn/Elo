@@ -147,7 +147,7 @@ pub fn scan_text(path: &str, content: &[u8]) -> Vec<Finding> {
 pub fn scan_trees(git: &Git, base_tree: &str, new_tree: &str) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for d in git.diff_trees(base_tree, new_tree)? {
-        let Some(new) = d.new() else { continue };
+        let Some(new) = d.new_entry() else { continue };
         if new.mode == crate::apply::MODE_GITLINK || new.mode == crate::apply::MODE_SYMLINK {
             continue;
         }

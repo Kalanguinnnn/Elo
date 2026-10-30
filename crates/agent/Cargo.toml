@@ -1,6 +1,15 @@
 [package]
 name = "continuity-agent"
-version = "0.1.0"
-edition = "2024"
+description = "Continuity background agent: watcher, scheduler, sync queue and local IPC server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
+continuity-core = { path = "../core" }
+log = "0.4.34"
+notify = "8.2.1"
+serde_json = "1.0.154"
+
+[dev-dependencies]
+tempfile = "3.27.0"

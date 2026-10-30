@@ -120,11 +120,10 @@ impl CheckpointMeta {
     pub fn parse_message(msg: &str) -> Result<CheckpointMeta> {
         let mut get = std::collections::HashMap::new();
         for line in msg.lines() {
-            if let Some(rest) = line.strip_prefix("Continuity-") {
-                if let Some((k, v)) = rest.split_once(':') {
+            if let Some(rest) = line.strip_prefix("Continuity-")
+                && let Some((k, v)) = rest.split_once(':') {
                     get.insert(k.trim().to_string(), v.trim().to_string());
                 }
-            }
         }
         let field = |k: &str| get.get(k).cloned().unwrap_or_default();
         let id = field("Id");

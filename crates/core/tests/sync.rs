@@ -511,6 +511,28 @@ fn unsafe_paths_in_remote_trees_are_never_written() {
 }
 
 #[test]
+fn sync_and_shutdown_pushes_everything_and_clears_queue() {
+    let f = fixture();
+    let ea = engine(&f.data_a, true);
+    let pa = add(&ea, &f.a);
+    write(&f.a, "last.txt", "before quitting\n");
+    let rep = ea.sync_and_shutdown().unwrap();
+    assert_eq!(rep.len(), 1);
+    assert!(rep[0].error.is_none(), "{rep:?}");
+    assert!(rep[0].checkpoint.is_some());
+    assert_eq!(rep[0].pushed, 1);
+    assert!(ea.queue().unwrap().is_empty());
+    assert_eq!(remote_refs(&f.remote).len(), 1);
+    // queue items of a removed project are dropped, not retried forever
+    write(&f.a, "again.txt", "x\n");
+    ea.checkpoint_now(&pa, Trigger::Manual).unwrap().unwrap();
+    ea.remove_project(&pa).unwrap();
+    ea.db().enqueue(&pa, "push", "").unwrap();
+    ea.process_queue().unwrap();
+    assert!(ea.queue().unwrap().is_empty());
+}
+
+#[test]
 fn eol_conversion_keeps_integrity_and_clean_status() {
     let f = fixture();
     for d in [&f.a, &f.b] {

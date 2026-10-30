@@ -422,10 +422,10 @@ impl DiffEntry {
     pub fn is_null_oid(oid: &str) -> bool {
         oid.bytes().all(|b| b == b'0')
     }
-    pub fn old(&self) -> Option<TreeEntry> {
+    pub fn old_entry(&self) -> Option<TreeEntry> {
         (!Self::is_null_oid(&self.old_oid)).then(|| TreeEntry { mode: self.old_mode.clone(), oid: self.old_oid.clone() })
     }
-    pub fn new(&self) -> Option<TreeEntry> {
+    pub fn new_entry(&self) -> Option<TreeEntry> {
         (!Self::is_null_oid(&self.new_oid)).then(|| TreeEntry { mode: self.new_mode.clone(), oid: self.new_oid.clone() })
     }
 }
@@ -503,7 +503,7 @@ mod tests {
         assert_eq!(v.len(), 3);
         assert_eq!(v[0].status, "M");
         assert_eq!(v[1].path, "new file.txt");
-        assert!(v[1].old().is_none());
+        assert!(v[1].old_entry().is_none());
         assert_eq!(v[2].status, "R");
         assert_eq!(v[2].path, "new.txt");
         assert_eq!(v[2].old_path.as_deref(), Some("old.txt"));

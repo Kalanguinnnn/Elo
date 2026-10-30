@@ -13,7 +13,6 @@ use crate::paths;
 use crate::snapshot::{RefCheckpoint, WorkState};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 pub const MODE_SYMLINK: &str = "120000";
@@ -139,13 +138,16 @@ pub struct ApplyResult {
     pub index_updated: bool,
 }
 
-fn diff_map(git: &Git, a: &str, b: &str) -> Result<BTreeMap<String, (Option<TreeEntry>, Option<TreeEntry>)>> {
+/// path -> (entry in , entry in ) for every changed path.
+type DiffMap = BTreeMap<String, (Option<TreeEntry>, Option<TreeEntry>)>;
+
+fn diff_map(git: &Git, a: &str, b: &str) -> Result<DiffMap> {
     let mut m = BTreeMap::new();
     if a == b {
         return Ok(m);
     }
     for d in git.diff_trees(a, b)? {
-        m.insert(d.path.clone(), (d.old(), d.new()));
+        m.insert(d.path.clone(), (d.old_entry(), d.new_entry()));
     }
     Ok(m)
 }
@@ -181,15 +183,14 @@ pub fn plan(git: &Git, ours: &WorkState, theirs: &RefCheckpoint, base_tree: &str
             skipped.push(SkippedEntry { path: path.clone(), reason: "submódulo (gitlink) não é sincronizado".into() });
             continue;
         }
-        if let Some(t) = theirs_e {
-            if t.mode == MODE_SYMLINK {
+        if let Some(t) = theirs_e
+            && t.mode == MODE_SYMLINK {
                 let target = String::from_utf8_lossy(&git.blob_raw(&t.oid)?).into_owned();
                 if !paths::symlink_target_is_contained(path, &target) {
                     skipped.push(SkippedEntry { path: path.clone(), reason: format!("symlink inseguro -> {target}") });
                     continue;
                 }
             }
-        }
         if let Some((ours_base, ours_e)) = d_ours.get(path) {
             debug_assert_eq!(ours_base, base_e);
             if ours_e == theirs_e {
@@ -349,9 +350,12 @@ fn b64_decode(s: &str) -> Result<Vec<u8>> {
     crate::b64::decode(s).ok_or_else(|| Error::Invalid("base64 inválido".into()))
 }
 
+/// Versions to keep aside: (relative path under the preserved dir, entry).
+pub type Preserve = Vec<(String, TreeEntry)>;
+
 /// Turn a plan plus conflict resolutions into the final list of changes, and
 /// list what must be preserved (the version that was not chosen).
-pub fn resolve(plan: &ApplyPlan, resolutions: &HashMap<String, Resolution>, theirs_label: &str) -> Result<(Vec<FileChange>, Vec<(String, TreeEntry)>)> {
+pub fn resolve(plan: &ApplyPlan, resolutions: &HashMap<String, Resolution>, theirs_label: &str) -> Result<(Vec<FileChange>, Preserve)> {
     let mut changes = plan.changes.clone();
     let mut preserve = Vec::new();
     for c in &plan.conflicts {
@@ -556,10 +560,6 @@ pub fn execute(
         }
     }
     Ok(res)
-}
-
-pub fn args_os<'a>(v: &'a [String]) -> Vec<&'a OsStr> {
-    v.iter().map(OsStr::new).collect()
 }
 
 #[cfg(test)]
