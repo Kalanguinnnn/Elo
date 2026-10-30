@@ -41,6 +41,18 @@ pub struct Settings {
     pub prune_remote: bool,
 }
 
+/// Client ID of the "Elo" OAuth App (device flow). Public by design: the
+/// device flow uses no client secret.
+pub const DEFAULT_GITHUB_CLIENT_ID: &str = "Ov23ctWvLpY22HembEji";
+
+impl Settings {
+    /// The user's override when set, otherwise the built-in OAuth App.
+    pub fn effective_client_id(&self) -> String {
+        let custom = self.github_client_id.trim();
+        if custom.is_empty() { DEFAULT_GITHUB_CLIENT_ID.to_string() } else { custom.to_string() }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {

@@ -237,7 +237,7 @@ pub fn dispatch(e: &Engine, method: &str, params: Value) -> Result<Value> {
             ok(json!({
                 "connected": e.github_token()?.is_some(),
                 "login": e.github_login()?,
-                "device_flow_available": !s.github_client_id.is_empty(),
+                "device_flow_available": !s.effective_client_id().is_empty(),
                 "askpass_available": e.askpass_available(),
             }))
         }
@@ -251,7 +251,7 @@ pub fn dispatch(e: &Engine, method: &str, params: Value) -> Result<Value> {
         }
         "github.logout" => ok(e.github_logout()?),
         "github.device_start" => {
-            let cid = e.settings()?.github_client_id;
+            let cid = e.settings()?.effective_client_id();
             if cid.is_empty() {
                 return Err(Error::Invalid("client id do OAuth App do GitHub não configurado".into()));
             }
@@ -263,7 +263,7 @@ pub fn dispatch(e: &Engine, method: &str, params: Value) -> Result<Value> {
                 device_code: String,
             }
             let a: A = p(params)?;
-            let cid = e.settings()?.github_client_id;
+            let cid = e.settings()?.effective_client_id();
             match crate::github::device_poll(&cid, &a.device_code)? {
                 crate::github::DevicePoll::Done { token } => {
                     let user = e.github_set_token(&token)?;

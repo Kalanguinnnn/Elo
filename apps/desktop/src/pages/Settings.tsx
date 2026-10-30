@@ -41,7 +41,7 @@ export default function SettingsPage() {
           <label className="field"><span>Intervalo padrão de checkpoints para novos projetos (minutos)</span><input type="number" min={1} value={draft.default_interval_secs / 60} onChange={num("default_interval_secs", 60)} /></label>
           <label className="field"><span>Buscar atualizações a cada (minutos)</span><input type="number" min={1} value={draft.fetch_interval_secs / 60} onChange={num("fetch_interval_secs", 60)} /></label>
           <label className="field"><span>Sem edições por este tempo antes de aplicar automaticamente (segundos)</span><input type="number" min={10} value={draft.quiet_secs} onChange={num("quiet_secs")} /></label>
-          <label className="field"><span>Client ID do OAuth App do GitHub (login pelo navegador)</span><input value={draft.github_client_id} onChange={(e) => setDraft({ ...draft, github_client_id: e.target.value.trim() })} placeholder="Iv1.… / Ov23…" /></label>
+          <label className="field"><span>Client ID de OAuth App próprio (opcional — vazio usa o app Elo)</span><input value={draft.github_client_id} onChange={(e) => setDraft({ ...draft, github_client_id: e.target.value.trim() })} placeholder="padrão: app Elo" /></label>
         </div>
       </section>
       <section>
