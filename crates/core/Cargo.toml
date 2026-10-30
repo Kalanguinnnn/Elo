@@ -6,8 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+cap-std = "3"
 chrono = { version = "0.4.45", features = ["serde"] }
 dirs = "6"
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "fast", "zeroize"] }
 getrandom = "0.3"
 hex = "0.4.3"
 interprocess = "2.4.7"

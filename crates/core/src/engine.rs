@@ -678,24 +678,14 @@ impl Engine {
             return Ok(report);
         }
 
-        let mut base = match self.db().last_pushed_own(project_id, &dev.id)? {
-            Some(c) if git.has_object(&c.tree_oid) => c.tree_oid,
-            _ => match git.resolve("@{upstream}^{tree}").ok().flatten() {
-                Some(t) => t,
-                None => git.empty_tree()?,
-            },
-        };
+        // Everything the push publishes (worktree tree, staging commit, local
+        // commits) minus what the remote is known to have.
+        let mut known = self.remote_known_commits(&p, &git)?;
         let mut to_push = Vec::new();
         for c in &candidates {
-            let findings = secrets::scan_trees(&git, &base, &c.tree_oid)?;
+            let findings = secrets::scan_new_objects(&git, std::slice::from_ref(&c.commit_oid), &known)?;
             self.db().replace_findings(project_id, &c.id, &findings)?;
-            let blocking = findings.iter().any(|f| f.severity == Severity::Blocking);
-            let mut unapproved = 0;
-            for f in findings.iter().filter(|f| f.severity == Severity::Warning) {
-                if !self.db().is_allowed(project_id, &f.fingerprint)? {
-                    unapproved += 1;
-                }
-            }
+            let (blocking, unapproved) = self.classify_findings(project_id, &findings)?;
             if blocking {
                 self.db().set_push_state(project_id, &c.id, "quarantined")?;
                 report.quarantined.push(c.id.clone());
@@ -718,7 +708,7 @@ impl Engine {
                 report.needs_review.push(c.id.clone());
             } else {
                 to_push.push(c.clone());
-                base = c.tree_oid.clone();
+                known.push(c.commit_oid.clone());
             }
         }
         if to_push.is_empty() {
@@ -737,6 +727,38 @@ impl Engine {
         report.pushed = refs;
         self.log(Some(project_id), "info", "push", &format!("{} checkpoint(s) enviado(s) para {}", to_push.len(), p.remote));
         Ok(report)
+    }
+
+    /// Commits the remote already has: remote-tracking branches plus checkpoints
+    /// pushed by us or fetched from it. Used as the exclusion set of scans.
+    fn remote_known_commits(&self, p: &Project, git: &Git) -> Result<Vec<String>> {
+        let mut known: Vec<String> = git
+            .run_text(os_args!["for-each-ref", "--format=%(objectname)", format!("refs/remotes/{}/", p.remote)])?
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(String::from)
+            .collect();
+        let rows = self.db().checkpoints(&p.id, false, 100_000)?;
+        for r in rows.into_iter().filter(|r| r.push_state == "pushed" || r.push_state == "remote") {
+            if git.has_object(&r.commit_oid) {
+                known.push(r.commit_oid);
+            }
+        }
+        known.sort();
+        known.dedup();
+        Ok(known)
+    }
+
+    /// (any blocking finding, number of warnings not yet approved).
+    fn classify_findings(&self, project_id: &str, findings: &[secrets::Finding]) -> Result<(bool, usize)> {
+        let blocking = findings.iter().any(|f| f.severity == Severity::Blocking);
+        let mut unapproved = 0;
+        for f in findings.iter().filter(|f| f.severity == Severity::Warning) {
+            if !self.db().is_allowed(project_id, &f.fingerprint)? {
+                unapproved += 1;
+            }
+        }
+        Ok((blocking, unapproved))
     }
 
     /// Fetch checkpoint refs and import their metadata.
@@ -1241,7 +1263,12 @@ impl Engine {
             s.extend(db.checkpoints_by_state(project_id, "quarantined")?.into_iter().map(|c| c.id));
             s
         };
-        Ok(self.db().findings(project_id, None)?.into_iter().filter(|f| held.contains(&f.checkpoint_id)).collect())
+        Ok(self
+            .db()
+            .findings(project_id, None)?
+            .into_iter()
+            .filter(|f| held.contains(&f.checkpoint_id) || f.checkpoint_id.starts_with("branch:"))
+            .collect())
     }
 
     /// Confirm specific warning-level findings. Blocking ones cannot be approved.
@@ -1258,6 +1285,9 @@ impl Engine {
         }
         if n > 0 {
             self.db().enqueue(project_id, "push", "")?;
+            for branch in all.iter().filter_map(|f| f.checkpoint_id.strip_prefix("branch:")) {
+                self.db().enqueue(project_id, "push_branch", branch)?;
+            }
             self.db().queue_retry_now(Some(project_id))?;
             self.log(Some(project_id), "warn", "secret_approved", &format!("{n} alerta(s) de segredo confirmado(s) pelo usuário"));
         }
@@ -1371,6 +1401,29 @@ impl Engine {
         let p = self.db().project(project_id)?;
         let git = self.open_git(&p)?;
         let auth = self.auth_for(&p, &git)?;
+        // Same gate as checkpoints: scan every object the branch push would
+        // publish. Held branches are not retried; the next auto-commit or an
+        // approval re-queues them.
+        let tip = git.ref_value(branch)?.ok_or_else(|| Error::NotFound(branch.into()))?;
+        let known = self.remote_known_commits(&p, &git)?;
+        let findings = secrets::scan_new_objects(&git, std::slice::from_ref(&tip), &known)?;
+        let key = format!("branch:{branch}");
+        self.db().replace_findings(project_id, &key, &findings)?;
+        let (blocking, unapproved) = self.classify_findings(project_id, &findings)?;
+        if blocking || unapproved > 0 {
+            self.log(
+                Some(project_id),
+                "error",
+                "secret_blocked",
+                &format!(
+                    "Branch {} NÃO enviada: {} possível(is) segredo(s){}. Revise em Projetos → Possíveis segredos.",
+                    checkpoint::short_branch(branch),
+                    findings.len(),
+                    if blocking { " (inclui credencial bloqueante)" } else { "" }
+                ),
+            );
+            return Ok(());
+        }
         transport::push_branch(&git, &p.remote, branch, &auth)?;
         self.log(Some(project_id), "info", "push_branch", &format!("Branch {} enviada", checkpoint::short_branch(branch)));
         Ok(())

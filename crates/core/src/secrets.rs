@@ -1,8 +1,15 @@
-//! Preventive credential detection, run on the content a push would publish.
+//! Preventive credential detection, run on every object a push would publish.
+//!
+//! The scan is object-based: `git rev-list --objects <tips> --not <known>`
+//! lists every blob reachable from what is about to be pushed and not already
+//! on the remote — the worktree tree, the staging-area commit, intermediate
+//! commits and branch history alike. Nothing is skipped silently: content up
+//! to [`LARGE_FILE_WARN`] is fully inspected, and anything larger produces a
+//! finding that needs an explicit decision.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::git::{os_args, Git, RunOpts};
-use regex::Regex;
+use regex::bytes::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
@@ -43,45 +50,53 @@ pub struct Finding {
 struct Rule {
     id: &'static str,
     severity: Severity,
+    /// Generic heuristics are too noisy on minified/one-line files.
+    generic: bool,
     re: Regex,
 }
 
 fn rules() -> &'static [Rule] {
     static R: OnceLock<Vec<Rule>> = OnceLock::new();
     R.get_or_init(|| {
-        let r = |id, severity, pat: &str| Rule { id, severity, re: Regex::new(pat).expect("valid regex") };
+        let r = |id, severity, generic, pat: &str| Rule { id, severity, generic, re: Regex::new(pat).expect("valid regex") };
         use Severity::*;
         vec![
-            r("private-key", Blocking, r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----"),
-            r("aws-access-key-id", Blocking, r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
-            r("aws-secret-access-key", Blocking, r#"(?i)aws_?secret_?access_?key\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}\b"#),
-            r("github-token", Blocking, r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b"),
-            r("github-fine-grained-token", Blocking, r"\bgithub_pat_[A-Za-z0-9_]{22,}\b"),
-            r("gitlab-token", Blocking, r"\bglpat-[A-Za-z0-9_\-]{20,}\b"),
-            r("slack-token", Blocking, r"\bxox[abposr]-[A-Za-z0-9-]{10,}"),
-            r("stripe-live-key", Blocking, r"\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\b"),
-            r("anthropic-api-key", Blocking, r"\bsk-ant-[A-Za-z0-9_\-]{20,}"),
-            r("openai-api-key", Blocking, r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{32,}"),
-            r("npm-token", Blocking, r"\bnpm_[A-Za-z0-9]{36}\b"),
-            r("google-api-key", Warning, r"\bAIza[0-9A-Za-z_\-]{35}\b"),
-            r("jwt", Warning, r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+            r("private-key", Blocking, false, r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----"),
+            r("aws-access-key-id", Blocking, false, r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+            r("aws-secret-access-key", Blocking, false, r#"(?i)aws_?secret_?access_?key\s*[:=]\s*['"]?[A-Za-z0-9/+=]{40}\b"#),
+            r("github-token", Blocking, false, r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b"),
+            r("github-fine-grained-token", Blocking, false, r"\bgithub_pat_[A-Za-z0-9_]{22,}\b"),
+            r("gitlab-token", Blocking, false, r"\bglpat-[A-Za-z0-9_\-]{20,}\b"),
+            r("slack-token", Blocking, false, r"\bxox[abposr]-[A-Za-z0-9-]{10,}"),
+            r("stripe-live-key", Blocking, false, r"\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\b"),
+            r("anthropic-api-key", Blocking, false, r"\bsk-ant-[A-Za-z0-9_\-]{20,}"),
+            r("openai-api-key", Blocking, false, r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{32,}"),
+            r("npm-token", Blocking, false, r"\bnpm_[A-Za-z0-9]{36}\b"),
+            r("google-api-key", Warning, false, r"\bAIza[0-9A-Za-z_\-]{35}\b"),
+            r("jwt", Warning, true, r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
             r(
                 "generic-secret-assignment",
                 Warning,
+                true,
                 r#"(?i)\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\b["']?\s*[:=]\s*["'][^"'\s]{8,}["']"#,
             ),
             r(
                 "credentials-in-url",
                 Warning,
+                false,
                 r"(?i)\b(?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|amqp|https?)://[^\s:/@]+:[^\s@/]{3,}@",
             ),
         ]
     })
 }
 
-const MAX_SCAN_BYTES: u64 = 1024 * 1024;
+/// Lines longer than this skip only the *generic* heuristics.
+const LONG_LINE: usize = 4000;
+/// Content up to this size is fully scanned; above it a finding is raised.
 pub const LARGE_FILE_WARN: u64 = 50 * 1024 * 1024;
 pub const LARGE_FILE_BLOCK: u64 = 100 * 1024 * 1024;
+/// Memory budget per `cat-file --batch` call.
+const BATCH_BYTES: u64 = 64 * 1024 * 1024;
 
 fn file_name_rule(path: &str) -> Option<(&'static str, Severity)> {
     let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
@@ -112,74 +127,164 @@ fn redact(s: &str) -> String {
     format!("{head}…({} caracteres)", chars.len())
 }
 
-fn fingerprint(path: &str, rule: &str, secret: &str) -> String {
-    crate::util::sha256_hex(format!("{path}\0{rule}\0{secret}").as_bytes())[..32].to_string()
+fn fingerprint(path: &str, rule: &str, secret: &[u8]) -> String {
+    let mut data = format!("{path}\0{rule}\0").into_bytes();
+    data.extend_from_slice(secret);
+    crate::util::sha256_hex(&data)[..32].to_string()
 }
 
-/// Scan one blob's text content.
-pub fn scan_text(path: &str, content: &[u8]) -> Vec<Finding> {
+/// Scan one blob's content. Binary content is checked against the
+/// high-confidence (non-generic) rules only.
+pub fn scan_bytes(path: &str, content: &[u8]) -> Vec<Finding> {
+    let binary = content.iter().take(8000).any(|b| *b == 0);
     let mut out = Vec::new();
-    if content.iter().take(8000).any(|b| *b == 0) {
-        return out; // binary
-    }
-    let text = String::from_utf8_lossy(content);
-    for (i, line) in text.lines().enumerate() {
-        if line.len() > 4000 {
-            continue; // minified bundles: too noisy
+    for rule in rules() {
+        if binary && rule.generic {
+            continue;
         }
-        for rule in rules() {
-            for m in rule.re.find_iter(line) {
-                out.push(Finding {
-                    path: path.to_string(),
-                    line: Some(i + 1),
-                    rule: rule.id.to_string(),
-                    severity: rule.severity,
-                    excerpt: redact(m.as_str()),
-                    fingerprint: fingerprint(path, rule.id, m.as_str()),
-                });
+        for m in rule.re.find_iter(content) {
+            let line_start = content[..m.start()].iter().rposition(|b| *b == b'\n').map(|i| i + 1).unwrap_or(0);
+            let line_end = content[m.end()..].iter().position(|b| *b == b'\n').map(|i| m.end() + i).unwrap_or(content.len());
+            if rule.generic && line_end - line_start > LONG_LINE {
+                continue;
             }
+            let line = (!binary).then(|| content[..m.start()].iter().filter(|b| **b == b'\n').count() + 1);
+            out.push(Finding {
+                path: path.to_string(),
+                line,
+                rule: rule.id.to_string(),
+                severity: rule.severity,
+                excerpt: redact(&String::from_utf8_lossy(m.as_bytes())),
+                fingerprint: fingerprint(path, rule.id, m.as_bytes()),
+            });
         }
     }
     out
 }
 
-/// Scan every blob that differs between `base_tree` and `new_tree`.
-pub fn scan_trees(git: &Git, base_tree: &str, new_tree: &str) -> Result<Vec<Finding>> {
-    let mut findings = Vec::new();
-    for d in git.diff_trees(base_tree, new_tree)? {
-        let Some(new) = d.new_entry() else { continue };
-        if new.mode == crate::apply::MODE_GITLINK || new.mode == crate::apply::MODE_SYMLINK {
-            continue;
+/// Text convenience wrapper (tests, callers holding a string).
+pub fn scan_text(path: &str, content: &[u8]) -> Vec<Finding> {
+    scan_bytes(path, content)
+}
+
+struct BlobRef {
+    oid: String,
+    path: String,
+    size: u64,
+}
+
+/// Every blob reachable from `tips` but not from `exclude` (commits already
+/// on the remote), with the first path under which it appears.
+fn new_blobs(git: &Git, tips: &[String], exclude: &[String]) -> Result<Vec<BlobRef>> {
+    let mut input = String::new();
+    for t in tips {
+        input.push_str(t);
+        input.push('\n');
+    }
+    for e in exclude {
+        input.push('^');
+        input.push_str(e);
+        input.push('\n');
+    }
+    let listed = git.run(os_args!["rev-list", "--objects", "--stdin"], RunOpts::default().stdin(input.into_bytes()))?;
+    let mut candidates: Vec<(String, String)> = Vec::new();
+    for line in String::from_utf8_lossy(&listed.stdout).lines() {
+        if let Some((oid, path)) = line.split_once(' ')
+            && !path.is_empty()
+        {
+            candidates.push((oid.to_string(), path.to_string()));
         }
-        if let Some((rule, sev)) = file_name_rule(&d.path) {
+    }
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut q = String::new();
+    for (oid, _) in &candidates {
+        q.push_str(oid);
+        q.push('\n');
+    }
+    let checked = git.run(
+        os_args!["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+        RunOpts::default().stdin(q.into_bytes()),
+    )?;
+    let mut out = Vec::new();
+    for ((oid, path), line) in candidates.into_iter().zip(String::from_utf8_lossy(&checked.stdout).lines()) {
+        let f: Vec<&str> = line.split(' ').collect();
+        if f.len() == 3 && f[0] == oid && f[1] == "blob" {
+            out.push(BlobRef { oid, path, size: f[2].parse().unwrap_or(0) });
+        }
+    }
+    Ok(out)
+}
+
+/// Read blobs in bounded batches through one `git cat-file --batch` per batch.
+fn read_blobs(git: &Git, blobs: &[&BlobRef], mut f: impl FnMut(&BlobRef, &[u8])) -> Result<()> {
+    let mut start = 0;
+    while start < blobs.len() {
+        let mut end = start;
+        let mut budget = 0;
+        while end < blobs.len() && (end == start || budget + blobs[end].size <= BATCH_BYTES) {
+            budget += blobs[end].size;
+            end += 1;
+        }
+        let mut q = String::new();
+        for b in &blobs[start..end] {
+            q.push_str(&b.oid);
+            q.push('\n');
+        }
+        let out = git.run(os_args!["cat-file", "--batch"], RunOpts::default().stdin(q.into_bytes()))?.stdout;
+        let mut pos = 0;
+        for b in &blobs[start..end] {
+            let nl = out[pos..].iter().position(|c| *c == b'\n').ok_or_else(|| Error::Other("cat-file truncado".into()))?;
+            let header = String::from_utf8_lossy(&out[pos..pos + nl]).into_owned();
+            pos += nl + 1;
+            let size: usize = header.rsplit(' ').next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            if !header.starts_with(&b.oid) || pos + size > out.len() {
+                return Err(Error::Other("resposta inesperada do cat-file".into()));
+            }
+            f(b, &out[pos..pos + size]);
+            pos += size + 1; // content + trailing newline
+        }
+        start = end;
+    }
+    Ok(())
+}
+
+/// Scan every blob that pushing `tips` would publish, given the commits the
+/// remote already has (`exclude`).
+pub fn scan_new_objects(git: &Git, tips: &[String], exclude: &[String]) -> Result<Vec<Finding>> {
+    let blobs = new_blobs(git, tips, exclude)?;
+    let mut findings = Vec::new();
+    let mut to_read = Vec::new();
+    for b in &blobs {
+        if let Some((rule, sev)) = file_name_rule(&b.path) {
             findings.push(Finding {
-                path: d.path.clone(),
+                path: b.path.clone(),
                 line: None,
                 rule: rule.into(),
                 severity: sev,
-                excerpt: d.path.rsplit('/').next().unwrap_or("").into(),
-                fingerprint: fingerprint(&d.path, rule, &new.oid),
+                excerpt: b.path.rsplit('/').next().unwrap_or("").into(),
+                fingerprint: fingerprint(&b.path, rule, b.oid.as_bytes()),
             });
         }
-        let size = git.object_size(&new.oid)?;
-        if size >= LARGE_FILE_WARN {
-            let sev = if size >= LARGE_FILE_BLOCK { Severity::Blocking } else { Severity::Warning };
+        if b.size > LARGE_FILE_WARN {
+            // Not inspected: never treated as clean.
+            let sev = if b.size >= LARGE_FILE_BLOCK { Severity::Blocking } else { Severity::Warning };
             findings.push(Finding {
-                path: d.path.clone(),
+                path: b.path.clone(),
                 line: None,
-                rule: "large-file".into(),
+                rule: "large-file-not-scanned".into(),
                 severity: sev,
-                excerpt: format!("{:.1} MB", size as f64 / 1_048_576.0),
-                fingerprint: fingerprint(&d.path, "large-file", &new.oid),
+                excerpt: format!("{:.1} MB", b.size as f64 / 1_048_576.0),
+                fingerprint: fingerprint(&b.path, "large-file-not-scanned", b.oid.as_bytes()),
             });
-            continue;
+        } else {
+            to_read.push(b);
         }
-        if size > MAX_SCAN_BYTES {
-            continue;
-        }
-        let blob = git.run(os_args!["cat-file", "blob", new.oid.as_str()], RunOpts::default())?.stdout;
-        findings.extend(scan_text(&d.path, &blob));
     }
+    read_blobs(git, &to_read, |b, content| findings.extend(scan_bytes(&b.path, content)))?;
+    findings.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
+    findings.dedup_by(|a, b| a.fingerprint == b.fingerprint);
     Ok(findings)
 }
 
@@ -204,7 +309,23 @@ mod tests {
 
         let f = scan_text("a.rs", b"let x = 1; // nothing here\n");
         assert!(f.is_empty());
-        assert!(scan_text("bin", b"AKIA\0AAAAAAAAAAAAAAAA").is_empty());
+    }
+
+    #[test]
+    fn long_lines_and_binary_content_are_still_scanned() {
+        // Audit finding 4: a token after byte 4000 of a single line.
+        let key = format!("ghp_{}", "Zz09".repeat(9));
+        let mut minified = "x".repeat(10_000);
+        minified.push_str(&format!(";t=\"{key}\";"));
+        let f = scan_text("bundle.min.js", minified.as_bytes());
+        assert!(f.iter().any(|x| x.rule == "github-token"), "{f:?}");
+        // Generic heuristics stay off on such lines (noise), specific rules stay on.
+        let noisy = format!("{}password=\"abcdefghij\"", "y".repeat(5000));
+        assert!(scan_text("x.js", noisy.as_bytes()).is_empty());
+        // Binary blob with an embedded key.
+        let mut bin = vec![0u8; 100];
+        bin.extend_from_slice(b"AKIAABCDEFGHIJKLMNOP");
+        assert_eq!(scan_bytes("data.bin", &bin)[0].rule, "aws-access-key-id");
     }
 
     #[test]

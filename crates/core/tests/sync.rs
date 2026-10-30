@@ -394,6 +394,66 @@ fn secrets_block_or_require_confirmation_before_push() {
     assert_eq!(remote_refs(&f.remote).len(), 1);
 }
 
+fn fake_token() -> String {
+    format!("ghp_{}", "Qw81".repeat(9))
+}
+
+#[test]
+fn audit2_secret_only_in_staging_is_not_pushed() {
+    let f = fixture();
+    let ea = engine(&f.data_a, true);
+    let pa = add(&ea, &f.a);
+    write(&f.a, "config.yml", format!("token: {}\n", fake_token()));
+    git(&f.a, &["add", "config.yml"]);
+    // Removed from the working tree, still staged.
+    write(&f.a, "config.yml", "token: ${TOKEN}\n");
+    ea.checkpoint_now(&pa, Trigger::Timer).unwrap().unwrap();
+    let r = ea.push_pending(&pa).unwrap();
+    assert_eq!(r.quarantined.len(), 1, "{r:?}");
+    assert!(remote_refs(&f.remote).is_empty(), "the staging commit must not reach the remote");
+}
+
+#[test]
+fn audit4_secret_in_large_file_or_long_line_is_not_pushed() {
+    let f = fixture();
+    let ea = engine(&f.data_a, true);
+    let pa = add(&ea, &f.a);
+    // 2 MiB text file with the token at the very end.
+    let mut big = "a".repeat(2 * 1024 * 1024);
+    big.push_str(&format!("\nkey={}\n", fake_token()));
+    write(&f.a, "data/dump.txt", big);
+    ea.checkpoint_now(&pa, Trigger::Timer).unwrap().unwrap();
+    assert_eq!(ea.push_pending(&pa).unwrap().quarantined.len(), 1);
+    std::fs::remove_file(f.a.join("data/dump.txt")).unwrap();
+    // Minified one-line bundle with the token after byte 4000.
+    write(&f.a, "dist/app.min.js", format!("{};var t=\"{}\";", "x".repeat(9000), fake_token()));
+    ea.checkpoint_now(&pa, Trigger::Timer).unwrap().unwrap();
+    assert_eq!(ea.push_pending(&pa).unwrap().quarantined.len(), 1);
+    assert!(remote_refs(&f.remote).is_empty());
+}
+
+#[test]
+fn audit1_autocommit_branch_push_is_scanned_including_history() {
+    let f = fixture();
+    let ea = engine(&f.data_a, true);
+    let pa = add(&ea, &f.a);
+    let remote_main = git(&f.remote, &["rev-parse", "main"]);
+    // A secret committed by hand and then removed: the final tree is clean,
+    // but pushing the branch would publish the intermediate commit.
+    write(&f.a, "leak.txt", format!("{}\n", fake_token()));
+    git(&f.a, &["add", "leak.txt"]);
+    git(&f.a, &["commit", "-m", "oops"]);
+    std::fs::remove_file(f.a.join("leak.txt")).unwrap();
+    ea.update_project(&pa, &ProjectPatch { autocommit: Some(true), ..Default::default() }).unwrap();
+    ea.checkpoint_now(&pa, Trigger::Timer).unwrap();
+    assert!(git(&f.a, &["log", "-1", "--format=%s"]).starts_with("chore(continuity):"), "auto-commit made");
+    ea.db().queue_retry_now(None).unwrap();
+    ea.process_queue().unwrap();
+    assert_eq!(git(&f.remote, &["rev-parse", "main"]), remote_main, "branch with secret history not pushed");
+    assert!(remote_refs(&f.remote).is_empty(), "checkpoint carrying the same history held too");
+    assert!(ea.findings(&pa).unwrap().iter().any(|x| x.checkpoint_id.starts_with("branch:")));
+}
+
 #[test]
 fn concurrent_checkpoints_are_serialised() {
     let f = fixture();
