@@ -83,12 +83,12 @@ fn process_names() -> std::io::Result<Vec<String>> {
                 v.push(comm.trim().to_ascii_lowercase());
             }
             // Many IDEs run as `java`/`electron`; the cmdline reveals them.
-            if let Ok(cmd) = std::fs::read(e.path().join("cmdline")) {
-                if let Some(first) = cmd.split(|b| *b == 0).next() {
-                    let s = String::from_utf8_lossy(first);
-                    if let Some(base) = s.rsplit('/').next() {
-                        v.push(base.to_ascii_lowercase());
-                    }
+            if let Ok(cmd) = std::fs::read(e.path().join("cmdline"))
+                && let Some(first) = cmd.split(|b| *b == 0).next()
+            {
+                let s = String::from_utf8_lossy(first);
+                if let Some(base) = s.rsplit('/').next() {
+                    v.push(base.to_ascii_lowercase());
                 }
             }
         }
