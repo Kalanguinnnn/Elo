@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/agent", "crates/cli"]
+members = ["crates/core", "crates/agent", "crates/cli", "apps/desktop/src-tauri"]
 # The desktop crate pulls the whole Tauri/WebView stack; keep plain `cargo test`
 # focused on the engine. CI builds the desktop crate explicitly.
 default-members = ["crates/core", "crates/agent", "crates/cli"]
@@ -9,7 +9,6 @@ default-members = ["crates/core", "crates/agent", "crates/cli"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.89"
-repository = "https://github.com/continuity-app/continuity"
 # License (MIT or Apache-2.0) is still a pending product decision; see README.
 
 [profile.release]
