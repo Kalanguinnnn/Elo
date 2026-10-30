@@ -461,6 +461,13 @@ impl Db {
         Ok(())
     }
 
+    /// Forget a device's pinned key and approval (it re-pins on the next
+    /// signed checkpoint and must be approved again).
+    pub fn reset_device_key(&self, id: &str) -> Result<()> {
+        self.conn.execute("UPDATE devices SET public_key = NULL, approved = 0 WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
     pub fn set_device_approved(&self, id: &str, approved: bool) -> Result<()> {
         let n = self.conn.execute(
             "UPDATE devices SET approved = ?1 WHERE id = ?2 AND (public_key IS NOT NULL OR ?1 = 0)",

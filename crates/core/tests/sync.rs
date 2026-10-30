@@ -543,6 +543,17 @@ fn audit3_forged_checkpoints_are_never_auto_applied() {
     // The manual path still shows it, flagged as unverified.
     let preview = eb.plan_apply(&pb, &forged, &ApplyOptions::default()).unwrap();
     assert!(!preview.origin_verified && !preview.auto_eligible);
+
+    // Resetting a device key revokes approval and re-pins on the next signed checkpoint.
+    eb.reset_device_key(&a_id).unwrap();
+    let dev = eb.devices().unwrap().into_iter().find(|d| d.id == a_id).unwrap();
+    assert!(dev.public_key.is_none() && !dev.approved);
+    write(&f.a, "real2.txt", "again\n");
+    ea.checkpoint_now(&pa, Trigger::Timer).unwrap().unwrap();
+    push(&ea, &pa);
+    eb.fetch(&pb).unwrap();
+    let dev = eb.devices().unwrap().into_iter().find(|d| d.id == a_id).unwrap();
+    assert!(dev.public_key.is_some() && !dev.approved, "re-pinned, waiting for a new approval");
 }
 
 #[test]

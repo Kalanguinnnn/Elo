@@ -60,6 +60,7 @@ export interface Checkpoint {
   origin: string;
   push_state: string;
   applied_ms: number | null;
+  verified: boolean;
 }
 
 export interface TreeEntry {
@@ -101,6 +102,8 @@ export interface ApplyPreview {
   plan: ApplyPlan;
   auto_eligible: boolean;
   ide: { safe: boolean; running: string[]; reason: string };
+  origin_verified: boolean;
+  device_approved: boolean;
 }
 
 export type ApplyOutcome =
@@ -150,6 +153,9 @@ export interface Device {
   first_seen_ms: number;
   last_seen_ms: number;
   is_local: boolean;
+  public_key: string | null;
+  fingerprint: string | null;
+  approved: boolean;
 }
 
 export interface Finding {

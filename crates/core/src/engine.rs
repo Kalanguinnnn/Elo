@@ -881,6 +881,17 @@ impl Engine {
         }
     }
 
+    /// Forget the pinned key of another device (e.g. its credential vault was
+    /// reset). Its approval is revoked too.
+    pub fn reset_device_key(&self, device_id: &str) -> Result<()> {
+        if device_id == self.device().id {
+            return Err(Error::Invalid("este é o próprio computador".into()));
+        }
+        self.db().reset_device_key(device_id)?;
+        self.log(None, "warn", "device_key_reset", &format!("Chave do dispositivo {device_id} esquecida; aprovação revogada"));
+        Ok(())
+    }
+
     /// Allow (or revoke) automatic apply of checkpoints signed by a device.
     pub fn approve_device(&self, device_id: &str, approved: bool) -> Result<()> {
         if device_id == self.device().id {

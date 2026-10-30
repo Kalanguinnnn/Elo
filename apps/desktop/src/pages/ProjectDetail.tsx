@@ -64,7 +64,8 @@ function IncomingCard({ projectId, inc, onDone, nav }: { projectId: string; inc:
     <div className="card">
       <div className="row between">
         <div>
-          <strong>{c.device_name}</strong> · {relTime(c.created_ms)} · branch {shortBranch(c.branch)} {!inc.same_branch && <Badge tone="warn">outra branch</Badge>}
+          <strong>{c.device_name}</strong> · {relTime(c.created_ms)} · branch {shortBranch(c.branch)} {!inc.same_branch && <Badge tone="warn">outra branch</Badge>}{" "}
+          {c.verified ? <Badge tone="ok">assinatura verificada</Badge> : <Badge tone="err">origem não verificada</Badge>}
           <div className="muted small">{c.summary} · checkpoint {c.id}</div>
         </div>
         <div className="row">
@@ -87,6 +88,15 @@ function IncomingCard({ projectId, inc, onDone, nav }: { projectId: string; inc:
                 ))}
               </ul>
             </details>
+          )}
+          {!preview!.origin_verified && (
+            <div className="notice error">
+              A assinatura deste checkpoint não confere com o computador "{c.device_name}". Ele pode ter sido forjado por alguém com acesso
+              de escrita ao remoto — só aplique se tiver certeza da origem.
+            </div>
+          )}
+          {preview!.origin_verified && !preview!.device_approved && (
+            <div className="notice">"{c.device_name}" ainda não está aprovado em Dispositivos, por isso atualizações dele nunca são aplicadas automaticamente.</div>
           )}
           {p.skipped.map((s) => <div key={s.path} className="notice">Não será aplicado: {s.path} — {s.reason}</div>)}
           {p.blockers.map((b) => <div key={b} className="notice error">{b}</div>)}

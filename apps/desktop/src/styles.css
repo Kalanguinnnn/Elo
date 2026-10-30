@@ -260,6 +260,8 @@ button.gh-button { display: inline-flex; align-items: center; justify-content: c
 .other-options { border-top: 1px solid var(--hairline); padding-top: 12px; }
 .other-options summary { font-weight: 500; }
 
+.fingerprint { font-family: var(--mono); font-size: 17px; letter-spacing: 0.06em; padding: 10px 14px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--hairline); align-self: flex-start; }
+
 /* ---------- files & diffs ---------- */
 .filelist { display: flex; flex-direction: column; gap: 1px; max-height: 360px; overflow: auto; }
 .filelist.side { width: 300px; max-height: calc(100vh - 210px); flex: none; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: 6px; box-shadow: var(--shadow); }
