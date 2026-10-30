@@ -5,6 +5,7 @@ import { relTime } from "../format";
 import { Badge, Empty } from "../ui";
 import AddProject from "./AddProject";
 import { useGithub } from "./GitHubConnect";
+import { IconRepo } from "../icons";
 
 export function statusBadges(s: ProjectStatus) {
   const b: React.ReactNode[] = [];
@@ -18,7 +19,7 @@ export function statusBadges(s: ProjectStatus) {
   else if (s.queue_error) b.push(<Badge key="e" tone="err">erro de envio</Badge>);
   if (s.interrupted_ops) b.push(<Badge key="x" tone="warn">operação interrompida</Badge>);
   if (s.project.trusted) b.push(<Badge key="t" tone="ok">confiável</Badge>);
-  if (!b.length && s.available) b.push(<Badge key="ok" tone="ok">sincronizado</Badge>);
+  if (!b.length && s.available) b.push(<Badge key="ok" tone="ok">Tudo em dia</Badge>);
   return b;
 }
 
@@ -45,9 +46,12 @@ export default function Projects({ nav, list, reload }: { nav: Nav; list: Projec
       <div className="list">
         {list.map((s) => (
           <button key={s.project.id} className="list-item" onClick={() => nav({ page: "project", id: s.project.id })}>
-            <div className="li-main">
-              <strong>{s.project.name}</strong>
-              <span className="muted mono small">{s.project.path}</span>
+            <div className="li-title">
+              <span className="project-glyph"><IconRepo /></span>
+              <div className="li-main">
+                <strong>{s.project.name}</strong>
+                <span className="muted mono small">{s.project.path}</span>
+              </div>
             </div>
             <div className="li-meta">
               <span className="muted small">

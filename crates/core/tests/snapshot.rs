@@ -152,6 +152,10 @@ fn binary_files_roundtrip_through_restore_with_integrity() {
     // restoring into a non-empty directory or inside the project is refused
     assert!(e.restore_to_dir(&id, &c.id, target.to_str().unwrap()).is_err());
     assert!(e.restore_to_dir(&id, &c.id, f.a.join("inside").to_str().unwrap()).is_err());
+    // Non-normalized spellings of a path inside the project are refused too.
+    let sneaky = f.data_a.join("..").join("a").join("inside2");
+    assert!(e.restore_to_dir(&id, &c.id, sneaky.to_str().unwrap()).is_err());
+    assert!(!f.a.join("inside2").exists());
 }
 
 #[test]

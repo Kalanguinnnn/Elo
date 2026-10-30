@@ -30,7 +30,7 @@ export default function SettingsPage() {
 
   return (
     <div className="page">
-      <h1>Configurações</h1>
+      <h1>Ajustes</h1>
       <section>
         <h2>GitHub</h2>
         <div className="card"><GitHubConnect /></div>

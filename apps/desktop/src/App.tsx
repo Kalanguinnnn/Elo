@@ -12,6 +12,8 @@ import Devices from "./pages/Devices";
 import ActivityPage from "./pages/Activity";
 import SettingsPage from "./pages/Settings";
 import About from "./pages/About";
+import { Dot, EloLogo } from "./brand";
+import { IconDevices, IconFolder, IconInfo, IconMerge, IconPulse, IconSliders } from "./icons";
 
 export type Route =
   | { page: "onboarding" }
@@ -27,14 +29,26 @@ export type Route =
 
 export type Nav = (r: Route) => void;
 
-const NAV: { page: Route["page"]; label: string }[] = [
-  { page: "projects", label: "Projetos" },
-  { page: "conflicts", label: "Conflitos" },
-  { page: "devices", label: "Dispositivos" },
-  { page: "activity", label: "Atividade" },
-  { page: "settings", label: "Configurações" },
-  { page: "about", label: "Sobre" },
+const NAV: { page: Route["page"]; label: string; icon: () => JSX.Element }[] = [
+  { page: "projects", label: "Projetos", icon: IconFolder },
+  { page: "conflicts", label: "Conflitos", icon: IconMerge },
+  { page: "devices", label: "Dispositivos", icon: IconDevices },
+  { page: "activity", label: "Atividade", icon: IconPulse },
+  { page: "settings", label: "Ajustes", icon: IconSliders },
+  { page: "about", label: "Sobre", icon: IconInfo },
 ];
+
+/** One-line health summary for the sidebar, from real project status. */
+function health(list: ProjectStatus[] | null, error: string | null): { tone: "ok" | "warn" | "err" | "info" | "idle"; text: string } {
+  if (error && !list) return { tone: "err", text: "Agent indisponível" };
+  if (!list) return { tone: "idle", text: "Conectando…" };
+  if (!list.length) return { tone: "idle", text: "Nenhum projeto" };
+  if (list.some((p) => p.open_conflicts || p.quarantined)) return { tone: "err", text: "Requer sua atenção" };
+  if (list.some((p) => p.queue_failure_kind === "offline")) return { tone: "warn", text: "Offline — na fila" };
+  if (list.some((p) => p.incoming)) return { tone: "info", text: "Atualizações disponíveis" };
+  if (list.some((p) => p.pending_push || p.needs_review)) return { tone: "warn", text: "Envio pendente" };
+  return { tone: "ok", text: "Tudo em dia" };
+}
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ page: "projects" });
@@ -43,6 +57,7 @@ export default function App() {
   const nav: Nav = (r) => setRoute(r);
 
   const conflicts = (projects.data ?? []).reduce((n, p) => n + p.open_conflicts, 0);
+  const h = health(projects.data, projects.error);
   const firstRun = projects.data !== null && projects.data.length === 0 && route.page === "projects";
 
   const syncAndQuit = () =>
@@ -102,20 +117,27 @@ export default function App() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand">Continuity</div>
+        <EloLogo size={21} />
         <nav>
-          {NAV.map((n) => (
-            <button
-              key={n.page}
-              className={`nav ${route.page === n.page || (n.page === "projects" && ["project", "history", "compare"].includes(route.page)) ? "active" : ""}`}
-              onClick={() => setRoute({ page: n.page } as Route)}
-            >
-              {n.label}
-              {n.page === "conflicts" && conflicts > 0 && <span className="count">{conflicts}</span>}
-            </button>
+          {NAV.map((n, i) => (
+            <div key={n.page}>
+              {i === 2 && <div className="nav-label">Geral</div>}
+              <button
+                className={`nav ${route.page === n.page || (n.page === "projects" && ["project", "history", "compare"].includes(route.page)) ? "active" : ""}`}
+                onClick={() => setRoute({ page: n.page } as Route)}
+              >
+                <n.icon />
+                {n.label}
+                {n.page === "conflicts" && conflicts > 0 && <span className="count">{conflicts}</span>}
+              </button>
+            </div>
           ))}
         </nav>
         <div className="sidebar-foot">
+          <div className="health">
+            <Dot tone={h.tone} />
+            {h.text}
+          </div>
           <button className="primary block" disabled={quit.busy} onClick={syncAndQuit} title="Cria checkpoints, envia tudo e encerra o Agent e o aplicativo">
             {quit.busy ? "Sincronizando…" : "Sincronizar e encerrar"}
           </button>

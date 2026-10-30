@@ -22,7 +22,10 @@ pub struct RestoreReport {
 /// an empty directory outside the project.
 pub fn restore_to_dir(git: &Git, tree: &str, target: &Path) -> Result<RestoreReport> {
     let target = absolute(target)?;
-    if target.starts_with(&git.workdir) || target.starts_with(&git.common_dir) {
+    // Compare canonical forms: short (8.3) names, case and `..` must not let
+    // a path inside the project slip through.
+    let canon = canonical_prefix(&target)?;
+    if canon.starts_with(canonical_prefix(&git.workdir)?) || canon.starts_with(canonical_prefix(&git.common_dir)?) {
         return Err(Error::Invalid("o destino da recuperação deve ficar fora do projeto".into()));
     }
     if target.exists() {
@@ -114,6 +117,27 @@ pub fn plan_in_place(git: &Git, current: &WorkState, checkpoint_tree: &str, rel_
 
 pub fn execute_in_place(git: &Git, plan: &ApplyPlan, preserve_dir: &Path) -> Result<ApplyResult> {
     apply::execute(git, plan, &plan.changes, &[], preserve_dir)
+}
+
+/// Canonicalize the longest existing ancestor of `p` and re-append the rest,
+/// so paths that do not exist yet can still be compared reliably.
+fn canonical_prefix(p: &Path) -> Result<PathBuf> {
+    let mut existing = p.to_path_buf();
+    let mut rest = Vec::new();
+    while !existing.exists() {
+        match (existing.file_name(), existing.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name.to_os_string());
+                existing = parent.to_path_buf();
+            }
+            _ => break,
+        }
+    }
+    let mut out = std::fs::canonicalize(&existing)?;
+    for comp in rest.into_iter().rev() {
+        out.push(comp);
+    }
+    Ok(out)
 }
 
 fn absolute(p: &Path) -> Result<PathBuf> {

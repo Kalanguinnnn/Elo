@@ -5,6 +5,7 @@ import type { Nav } from "../App";
 import { dateTime, pushLabel, shortBranch, triggerLabel } from "../format";
 import { Badge, Empty, Notice, useAction, useLoad } from "../ui";
 import { outcomeText } from "./ProjectDetail";
+import { IconChevronLeft } from "../icons";
 
 interface RestoreReport {
   target: string;
@@ -78,7 +79,7 @@ export default function History({ nav, id }: { nav: Nav; id: string }) {
   const rows = (hist.data ?? []).filter((c) => !device || c.device_name === device);
   return (
     <div className="page">
-      <button className="link" onClick={() => nav({ page: "project", id })}>← {st.data?.project.name ?? "Projeto"}</button>
+      <button className="link back" onClick={() => nav({ page: "project", id })}><IconChevronLeft />{st.data?.project.name ?? "Projeto"}</button>
       <div className="page-head">
         <h1>Histórico</h1>
         <select value={device} onChange={(e) => setDevice(e.target.value)}>
@@ -88,9 +89,9 @@ export default function History({ nav, id }: { nav: Nav; id: string }) {
       </div>
       <Notice error={hist.error} />
       {rows.length === 0 && <Empty>Nenhum checkpoint.</Empty>}
-      <div className="list">
+      <div className="timeline">
         {rows.map((c) => (
-          <div key={c.id}>
+          <div key={c.id} className={st.data?.project.lineage_head === c.id ? "current" : ""}>
             <button className={`list-item ${open_ === c.id ? "sel" : ""}`} onClick={() => setOpen(open_ === c.id ? null : c.id)}>
               <div className="li-main">
                 <strong>{dateTime(c.created_ms)}</strong>

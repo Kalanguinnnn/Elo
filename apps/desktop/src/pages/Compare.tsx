@@ -3,6 +3,7 @@ import { call, type Checkpoint, type DiffEntry, type FileView, type Side } from 
 import type { Nav } from "../App";
 import { dateTime } from "../format";
 import { DiffView, Empty, Notice, useLoad } from "../ui";
+import { IconChevronLeft } from "../icons";
 
 function sideFrom(v: string): Side {
   if (v === "current") return { kind: "current" };
@@ -46,7 +47,7 @@ export default function Compare({ nav, id, from, to }: { nav: Nav; id: string; f
   );
   return (
     <div className="page wide">
-      <button className="link" onClick={() => nav({ page: "project", id })}>← Projeto</button>
+      <button className="link back" onClick={() => nav({ page: "project", id })}><IconChevronLeft />Projeto</button>
       <h1>Comparar versões</h1>
       <div className="row">
         <select value={a} onChange={(e) => { setA(e.target.value); setFile(null); }}>{opts}</select>

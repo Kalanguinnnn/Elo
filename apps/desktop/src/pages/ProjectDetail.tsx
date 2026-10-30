@@ -5,6 +5,7 @@ import type { Nav } from "../App";
 import { dateTime, relTime, shortBranch } from "../format";
 import { Badge, Empty, Notice, Toggle, useAction, useLoad } from "../ui";
 import { statusBadges } from "./Projects";
+import { IconChevronLeft } from "../icons";
 
 interface Incoming {
   checkpoint: Checkpoint;
@@ -204,7 +205,7 @@ export default function ProjectDetail({ nav, id, onChanged }: { nav: Nav; id: st
     <div className="page">
       <div className="page-head">
         <div>
-          <button className="link" onClick={() => nav({ page: "projects" })}>← Projetos</button>
+          <button className="link back" onClick={() => nav({ page: "projects" })}><IconChevronLeft />Projetos</button>
           <h1>{pr.name}</h1>
           <div className="muted mono small">{pr.path}</div>
         </div>

@@ -2,6 +2,7 @@
 //! gate automatic application of incoming checkpoints. Any doubt → not safe.
 
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
 use std::process::Command;
 
 /// Process names (lowercase, without `.exe`) of editors and IDEs.
@@ -73,7 +74,6 @@ fn process_names() -> std::io::Result<Vec<String>> {
     }
     #[cfg(not(windows))]
     {
-        let _ = Command::new; // keep import used on all platforms
         let mut v = Vec::new();
         for e in std::fs::read_dir("/proc")?.flatten() {
             if !e.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit()) {

@@ -4,6 +4,7 @@ import type { Nav } from "../App";
 import { Notice, useAction, useLoad } from "../ui";
 import AddProject from "./AddProject";
 import GitHubConnect, { useGithub } from "./GitHubConnect";
+import { EloLogo } from "../brand";
 
 export default function Onboarding({ onDone }: { nav: Nav; onDone: () => void }) {
   const [step, setStep] = useState(0);
@@ -20,10 +21,15 @@ export default function Onboarding({ onDone }: { nav: Nav; onDone: () => void })
 
   return (
     <div className="page narrow">
-      <h1>Bem-vindo ao Continuity</h1>
+      <EloLogo size={30} />
+      <div className="hero">
+        Continue
+        <br />
+        de onde parou<em>.</em>
+      </div>
       <p className="lead">
-        Continue seu trabalho em outro computador — inclusive alterações não commitadas — sem executar comandos Git. Os checkpoints
-        ficam em referências próprias do seu remoto Git; seu staging e sua branch não são alterados.
+        O Elo leva seu trabalho para outro computador — inclusive o que ainda não foi commitado — sem comandos Git. Os checkpoints
+        ficam em referências próprias do seu remoto; seu staging e sua branch não são tocados.
       </p>
       <ol className="steps">
         {["Este computador", "Conta GitHub", "Primeiro projeto"].map((s, i) => (

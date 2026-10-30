@@ -1,7 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect x="64" y="64" width="896" height="896" rx="200" fill="#2f5bea"/>
-  <path d="M330 512a182 182 0 0 1 300-138" fill="none" stroke="#fff" stroke-width="72" stroke-linecap="round"/>
-  <path d="M694 512a182 182 0 0 1-300 138" fill="none" stroke="#fff" stroke-width="72" stroke-linecap="round"/>
-  <circle cx="694" cy="512" r="58" fill="#fff"/>
-  <circle cx="330" cy="512" r="58" fill="#fff"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f3431"/>
+      <stop offset="1" stop-color="#1d201e"/>
+    </linearGradient>
+    <linearGradient id="dot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a3b59f"/>
+      <stop offset="1" stop-color="#86997f"/>
+    </linearGradient>
+  </defs>
+  <!-- macOS-style squircle -->
+  <path fill="url(#bg)" d="M512 72c308 0 440 132 440 440s-132 440-440 440S72 820 72 512 204 72 512 72z"/>
+  <path fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="4" d="M512 74c306 0 438 132 438 438"/>
+  <g transform="translate(512 512) scale(3.4) translate(-68 -54)" fill="none" stroke="#F1F0E9" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M64 10H30A20 20 0 0 0 10 30V50"/>
+    <path d="M72 98H106A20 20 0 0 0 126 78V58"/>
+    <circle cx="68" cy="54" r="16" fill="url(#dot)" stroke="none"/>
+  </g>
 </svg>

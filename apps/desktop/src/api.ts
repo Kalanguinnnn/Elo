@@ -3,6 +3,9 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export async function call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  if (!("__TAURI_INTERNALS__" in window)) {
+    throw new Error("Esta interface precisa ser aberta pelo aplicativo Elo (o Agent não é acessível pelo navegador).");
+  }
   return invoke<T>("agent_call", { method, params });
 }
 
