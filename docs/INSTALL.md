@@ -12,7 +12,7 @@ Requisito em todas as plataformas: **Git 2.31 ou superior** disponível no `PATH
 3. O instalador inclui o app, o Agent (`continuity-agent.exe`) e a CLI (`continuity.exe`).
    O WebView2 já vem no Windows 10/11; se faltar, o instalador o obtém.
 
-Os dados ficam em `%LOCALAPPDATA%\Continuity`. O token do GitHub fica no Gerenciador de
+Os dados ficam em `%LOCALAPPDATA%\EloData` (separado da pasta de instalação, para que desinstalar não apague o banco de dados). O token do GitHub fica no Gerenciador de
 Credenciais do Windows.
 
 ## Linux
@@ -21,7 +21,7 @@ Credenciais do Windows.
 - `.rpm` (Fedora/openSUSE): `sudo dnf install ./continuity-<versão>.x86_64.rpm`
 - AppImage: `chmod +x Continuity_<versão>_amd64.AppImage && ./Continuity_<versão>_amd64.AppImage`
 
-Os dados ficam em `~/.local/share/continuity`. O token do GitHub fica no Secret Service
+Os dados ficam em `~/.local/share/elo`. O token do GitHub fica no Secret Service
 (GNOME Keyring/KWallet), que precisa estar ativo na sessão.
 
 ## Compilar a partir do código
