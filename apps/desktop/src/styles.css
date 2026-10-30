@@ -234,6 +234,32 @@ select { padding-right: 26px; }
 .hero { font-size: 40px; font-weight: 650; letter-spacing: -0.035em; line-height: 1.05; margin: 30px 0 12px; }
 .hero em { font-style: normal; color: var(--sage); }
 
+/* ---------- GitHub login ---------- */
+.gh-hero, .device-login { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 10px 6px 4px; }
+.center-text { max-width: 420px; margin: 0; }
+.row.center { justify-content: center; flex-wrap: wrap; }
+.gh-avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--primary); color: var(--primary-fg); flex: none; }
+.gh-avatar.big { width: 56px; height: 56px; }
+.device-title { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; margin: 4px 0 0; }
+button.gh-button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; font-size: 14px; font-weight: 600; padding: 11px 26px; border-radius: 10px; min-width: 260px; margin-top: 6px; }
+.gh-connected { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.gh-connected .gh-avatar { background: var(--sage); color: #fff; }
+
+.code-boxes { display: flex; align-items: center; gap: 7px; margin: 6px 0 4px; user-select: all; }
+.code-char {
+  width: 46px; height: 58px; display: grid; place-items: center; font-family: var(--mono); font-size: 28px; font-weight: 600;
+  border-radius: 11px; background: var(--surface-2); border: 1.5px solid var(--hairline-strong); box-shadow: var(--shadow);
+}
+.code-sep { font-size: 24px; color: var(--faint); padding: 0 2px; }
+.howto { text-align: left; margin: 10px 0 2px; padding: 14px 18px 14px 38px; border-radius: var(--r); background: var(--surface-2); line-height: 1.6; max-width: 480px; }
+.howto li + li { margin-top: 6px; }
+.howto li::marker { font-weight: 600; color: var(--sage); }
+.waiting { display: inline-flex; align-items: center; gap: 10px; font-weight: 500; padding: 8px 14px; border-radius: 20px; background: var(--add); }
+.pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--sage); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(145, 165, 141, 0.6); } 50% { box-shadow: 0 0 0 7px rgba(145, 165, 141, 0); } }
+.other-options { border-top: 1px solid var(--hairline); padding-top: 12px; }
+.other-options summary { font-weight: 500; }
+
 /* ---------- files & diffs ---------- */
 .filelist { display: flex; flex-direction: column; gap: 1px; max-height: 360px; overflow: auto; }
 .filelist.side { width: 300px; max-height: calc(100vh - 210px); flex: none; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: 6px; box-shadow: var(--shadow); }
