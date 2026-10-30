@@ -60,7 +60,7 @@ fn full_flow_a_to_b_and_back_without_manual_commits() {
     let inc = receive(&eb, &pb);
     assert_eq!(inc, c.id);
     let preview = eb.plan_apply(&pb, &inc, &ApplyOptions::default()).unwrap();
-    assert!(preview.auto_eligible, "{:?}", preview.plan);
+    assert!(preview.plan.auto_eligible(), "{:?}", preview.plan);
     applied(eb.apply(&pb, &inc, &ApplyOptions::default(), false).unwrap());
     assert_eq!(read(&f.b, "src/lib.rs"), "pub fn a() { 1 }\n");
     assert_eq!(read(&f.b, "src/new.rs"), "pub fn new() {}\n");
@@ -77,7 +77,7 @@ fn full_flow_a_to_b_and_back_without_manual_commits() {
     push(&eb, &pb);
     let inc = receive(&ea, &pa);
     let preview = ea.plan_apply(&pa, &inc, &ApplyOptions::default()).unwrap();
-    assert!(preview.auto_eligible, "A had no changes since its checkpoint: {:?}", preview.plan);
+    assert!(preview.plan.auto_eligible(), "A had no changes since its checkpoint: {:?}", preview.plan);
     applied(ea.apply(&pa, &inc, &ApplyOptions::default(), false).unwrap());
     assert_eq!(read(&f.a, "src/new.rs"), "pub fn new() { 2 }\n");
     assert_eq!(read(&f.a, "local.log"), "ignored, never synced\n", "ignored local file untouched");
@@ -87,7 +87,7 @@ fn full_flow_a_to_b_and_back_without_manual_commits() {
     ea.checkpoint_now(&pa, Trigger::Timer).unwrap().unwrap();
     push(&ea, &pa);
     let inc = receive(&eb, &pb);
-    assert!(eb.plan_apply(&pb, &inc, &ApplyOptions::default()).unwrap().auto_eligible);
+    assert!(eb.plan_apply(&pb, &inc, &ApplyOptions::default()).unwrap().plan.auto_eligible());
     applied(eb.apply(&pb, &inc, &ApplyOptions::default(), false).unwrap());
     assert_eq!(read(&f.b, "src/lib.rs"), "pub fn a() { 3 }\n");
 }
@@ -165,7 +165,7 @@ fn divergent_edits_become_conflicts_and_nothing_is_overwritten() {
     eb.push_pending(&pb).unwrap();
     let inc = receive(&ea, &pa);
     let preview = ea.plan_apply(&pa, &inc, &ApplyOptions::default()).unwrap();
-    assert!(preview.auto_eligible, "{:?}", preview.plan);
+    assert!(preview.plan.auto_eligible(), "{:?}", preview.plan);
     applied(ea.apply(&pa, &inc, &ApplyOptions::default(), false).unwrap());
     assert_eq!(read(&f.a, "only_b.txt"), "from B\n");
 }
@@ -320,8 +320,12 @@ fn auto_apply_only_when_trusted_safe_and_clean() {
     eb.update_project(&pb, &ProjectPatch { trusted: Some(false), ..Default::default() }).unwrap();
     eb.sync_project(&pb, true).unwrap();
     assert!(!exists(&f.b, "x.txt"));
-    // Trusted + safe + clean → applied automatically.
+    // Trusted + safe + clean, but device A not approved yet → manual.
     eb.update_project(&pb, &ProjectPatch { trusted: Some(true), ..Default::default() }).unwrap();
+    eb.sync_project(&pb, true).unwrap();
+    assert!(!exists(&f.b, "x.txt"));
+    // Device approved → applied automatically.
+    eb.approve_device(&ea.device().id, true).unwrap();
     eb.sync_project(&pb, true).unwrap();
     assert_eq!(read(&f.b, "x.txt"), "1\n");
     // Local edits on B → next update needs manual action.
@@ -454,6 +458,93 @@ fn audit1_autocommit_branch_push_is_scanned_including_history() {
     assert!(ea.findings(&pa).unwrap().iter().any(|x| x.checkpoint_id.starts_with("branch:")));
 }
 
+/// Push a hand-made checkpoint ref, as an attacker with write access to the
+/// remote would. Returns the forged checkpoint id.
+fn forge_checkpoint(
+    repo: &std::path::Path,
+    device_id: &str,
+    parents: Vec<String>,
+    key: Option<&continuity_core::signing::DeviceKey>,
+) -> String {
+    use continuity_core::checkpoint::{self, CheckpointMeta};
+    use continuity_core::snapshot;
+    let g = open(repo);
+    write(repo, "evil.txt", "malicious change\n");
+    let state = snapshot::capture(&g).unwrap();
+    std::fs::remove_file(repo.join("evil.txt")).unwrap();
+    let head: Vec<&str> = state.head.as_deref().into_iter().collect();
+    let idx = snapshot::commit_tree(&g, &state.index_tree, &head, "index").unwrap();
+    let id = checkpoint::new_id(continuity_core::util::now_ms() + 60_000);
+    let mut meta = CheckpointMeta {
+        id: id.clone(),
+        device_id: device_id.into(),
+        device_name: "Laptop".into(),
+        branch: state.branch.clone(),
+        head: state.head.clone(),
+        index_commit: idx.clone(),
+        created_ms: continuity_core::util::now_ms(),
+        trigger: Trigger::Timer,
+        parents,
+        summary: String::new(),
+        public_key: None,
+        signature: None,
+    };
+    if let Some(k) = key {
+        meta.public_key = Some(k.public_key());
+        meta.signature = Some(k.sign(&continuity_core::signing::payload(&meta, &state.tree)));
+    }
+    let mut parents_c = head.clone();
+    parents_c.push(&idx);
+    let commit = snapshot::commit_tree(&g, &state.tree, &parents_c, &meta.to_message()).unwrap();
+    let r = checkpoint::ref_name(device_id, &id);
+    git(repo, &["update-ref", &r, &commit]);
+    git(repo, &["push", "-q", "origin", &format!("{r}:{r}")]);
+    id
+}
+
+#[test]
+fn audit3_forged_checkpoints_are_never_auto_applied() {
+    let f = fixture();
+    let ea = engine(&f.data_a, true);
+    let eb = engine(&f.data_b, true);
+    let pa = add(&ea, &f.a);
+    let pb = add(&eb, &f.b);
+    eb.update_project(&pb, &ProjectPatch { trusted: Some(true), ..Default::default() }).unwrap();
+
+    // A genuine, signed checkpoint from A is not auto-applied until A is approved.
+    write(&f.a, "real.txt", "from A\n");
+    let c = ea.checkpoint_now(&pa, Trigger::Timer).unwrap().unwrap();
+    assert!(c.verified);
+    push(&ea, &pa);
+    eb.sync_project(&pb, true).unwrap();
+    assert!(!exists(&f.b, "real.txt"), "unapproved device");
+    let a_id = ea.device().id;
+    let dev = eb.devices().unwrap().into_iter().find(|d| d.id == a_id).unwrap();
+    assert_eq!(dev.public_key, Some(ea.devices().unwrap().into_iter().find(|d| d.is_local).unwrap().public_key.unwrap()));
+    eb.approve_device(&a_id, true).unwrap();
+    eb.sync_project(&pb, true).unwrap();
+    assert_eq!(read(&f.b, "real.txt"), "from A\n", "approved + verified → automatic");
+    let b_head = eb.projects().unwrap()[0].lineage_head.clone().unwrap();
+
+    // 1) Unsigned checkpoint from an unknown device claiming B's head as parent.
+    let fake_dev = uuid::Uuid::new_v4().to_string();
+    let forged = forge_checkpoint(&f.a, &fake_dev, vec![b_head.clone()], None);
+    eb.sync_project(&pb, true).unwrap();
+    assert!(!exists(&f.b, "evil.txt"), "unsigned checkpoint must not be written");
+    assert!(!eb.db().checkpoint(&pb, &forged).unwrap().verified);
+
+    // 2) Checkpoint impersonating A, signed with an attacker key.
+    let attacker = continuity_core::signing::DeviceKey::load_or_create(&continuity_core::credentials::MemoryStore::default()).unwrap();
+    let forged = forge_checkpoint(&f.a, &a_id, vec![b_head], Some(&attacker));
+    eb.sync_project(&pb, true).unwrap();
+    assert!(!exists(&f.b, "evil.txt"), "impersonation must not be written");
+    assert!(!eb.db().checkpoint(&pb, &forged).unwrap().verified);
+    assert!(eb.db().activity(None, 50).unwrap().iter().any(|a| a.kind == "device_key_mismatch"));
+    // The manual path still shows it, flagged as unverified.
+    let preview = eb.plan_apply(&pb, &forged, &ApplyOptions::default()).unwrap();
+    assert!(!preview.origin_verified && !preview.auto_eligible);
+}
+
 #[test]
 fn concurrent_checkpoints_are_serialised() {
     let f = fixture();
@@ -556,6 +647,8 @@ fn unsafe_paths_in_remote_trees_are_never_written() {
             trigger: Trigger::Manual,
             parents: vec![],
             summary: String::new(),
+            public_key: None,
+            signature: None,
         },
     };
     let plan = continuity_core::apply::plan(&g, &state, &theirs, &state.tree, &ApplyOptions { files_only: true, ..Default::default() }).unwrap();

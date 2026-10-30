@@ -41,7 +41,7 @@ struct CheckpointRef {
 }
 
 pub const METHODS: &[&str] = &[
-    "ping", "device.get", "device.rename", "devices.list", "settings.get", "settings.set", "path.inspect",
+    "ping", "device.get", "device.rename", "devices.list", "device.approve", "settings.get", "settings.set", "path.inspect",
     "projects.list", "project.add", "project.clone", "project.status", "project.update", "project.remove",
     "project.set_remote", "checkpoint.create", "history.list", "sync.project", "sync.push", "sync.fetch",
     "incoming.list", "apply.plan", "apply.run", "conflicts.list", "conflict.detail", "conflict.resolve",
@@ -64,6 +64,15 @@ pub fn dispatch(e: &Engine, method: &str, params: Value) -> Result<Value> {
             ok(e.rename_device(&a.name)?)
         }
         "devices.list" => ok(e.devices()?),
+        "device.approve" => {
+            #[derive(Deserialize)]
+            struct A {
+                device_id: String,
+                approved: bool,
+            }
+            let a: A = p(params)?;
+            ok(e.approve_device(&a.device_id, a.approved)?)
+        }
         "settings.get" => ok(e.settings()?),
         "settings.set" => {
             #[derive(Deserialize)]

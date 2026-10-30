@@ -60,6 +60,12 @@ pub struct CheckpointMeta {
     /// Lineage parents (checkpoint ids).
     pub parents: Vec<String>,
     pub summary: String,
+    /// Device public key (Ed25519, hex) and signature over
+    /// [`crate::signing::payload`]. Absent on unsigned checkpoints.
+    #[serde(default)]
+    pub public_key: Option<String>,
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 /// `<unix_ms:013>-<6 hex>`: lexicographic order == chronological order.
@@ -114,6 +120,10 @@ impl CheckpointMeta {
         m.push_str(&kv("Created-Ms", &self.created_ms.to_string()));
         m.push_str(&kv("Trigger", self.trigger.as_str()));
         m.push_str(&kv("Parents", &self.parents.join(" ")));
+        if let (Some(k), Some(s)) = (&self.public_key, &self.signature) {
+            m.push_str(&kv("Key", k));
+            m.push_str(&kv("Signature", s));
+        }
         m
     }
 
@@ -151,6 +161,8 @@ impl CheckpointMeta {
             trigger: Trigger::parse(&field("Trigger")),
             parents,
             summary,
+            public_key: opt(field("Key")).filter(|k| k.len() == 64 && k.bytes().all(|c| c.is_ascii_hexdigit())),
+            signature: opt(field("Signature")).filter(|s| s.len() == 128 && s.bytes().all(|c| c.is_ascii_hexdigit())),
         })
     }
 }
@@ -190,6 +202,8 @@ mod tests {
             trigger: Trigger::Timer,
             parents: vec![new_id(1_600_000_000_000)],
             summary: "3 arquivos".into(),
+            public_key: None,
+            signature: None,
         };
         let parsed = CheckpointMeta::parse_message(&m.to_message()).unwrap();
         assert_eq!(parsed.id, m.id);

@@ -120,6 +120,12 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     "#,
+    // v2: checkpoint signatures (audit finding 3)
+    r#"
+    ALTER TABLE devices ADD COLUMN public_key TEXT;
+    ALTER TABLE devices ADD COLUMN approved INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE checkpoints ADD COLUMN verified INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +168,9 @@ pub struct CheckpointRow {
     pub push_state: String,
     pub applied_ms: Option<i64>,
     pub pruned: bool,
+    /// Signature valid and made with the key pinned for `device_id`.
+    #[serde(default)]
+    pub verified: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +180,10 @@ pub struct DeviceRow {
     pub first_seen_ms: i64,
     pub last_seen_ms: i64,
     pub is_local: bool,
+    pub public_key: Option<String>,
+    pub fingerprint: Option<String>,
+    /// Approved by the user for automatic apply.
+    pub approved: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -279,6 +292,7 @@ fn checkpoint_from_row(r: &Row) -> rusqlite::Result<CheckpointRow> {
         push_state: r.get("push_state")?,
         applied_ms: r.get("applied_ms")?,
         pruned: r.get("pruned")?,
+        verified: r.get("verified")?,
     })
 }
 
@@ -412,12 +426,50 @@ impl Db {
     }
 
     pub fn devices(&self, local_id: &str) -> Result<Vec<DeviceRow>> {
-        let mut st = self.conn.prepare("SELECT id, name, first_seen_ms, last_seen_ms FROM devices ORDER BY last_seen_ms DESC")?;
+        let mut st = self
+            .conn
+            .prepare("SELECT id, name, first_seen_ms, last_seen_ms, public_key, approved FROM devices ORDER BY last_seen_ms DESC")?;
         let rows = st.query_map([], |r| {
             let id: String = r.get(0)?;
-            Ok(DeviceRow { is_local: id == local_id, id, name: r.get(1)?, first_seen_ms: r.get(2)?, last_seen_ms: r.get(3)? })
+            let public_key: Option<String> = r.get(4)?;
+            Ok(DeviceRow {
+                is_local: id == local_id,
+                id,
+                name: r.get(1)?,
+                first_seen_ms: r.get(2)?,
+                last_seen_ms: r.get(3)?,
+                fingerprint: public_key.as_deref().map(crate::signing::fingerprint),
+                public_key,
+                approved: r.get(5)?,
+            })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// (pinned public key, approved) for a device.
+    pub fn device_trust(&self, id: &str) -> Result<(Option<String>, bool)> {
+        Ok(self
+            .conn
+            .query_row("SELECT public_key, approved FROM devices WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?
+            .unwrap_or((None, false)))
+    }
+
+    /// Pin a key on first sight; never replaces an existing pin.
+    pub fn pin_device_key(&self, id: &str, key: &str) -> Result<()> {
+        self.conn.execute("UPDATE devices SET public_key = ?1 WHERE id = ?2 AND public_key IS NULL", params![key, id])?;
+        Ok(())
+    }
+
+    pub fn set_device_approved(&self, id: &str, approved: bool) -> Result<()> {
+        let n = self.conn.execute(
+            "UPDATE devices SET approved = ?1 WHERE id = ?2 AND (public_key IS NOT NULL OR ?1 = 0)",
+            params![approved, id],
+        )?;
+        if n == 0 {
+            return Err(Error::Invalid("dispositivo desconhecido ou sem chave de assinatura".into()));
+        }
+        Ok(())
     }
 
     // ---- projects -----------------------------------------------------
@@ -510,12 +562,12 @@ impl Db {
     pub fn insert_checkpoint(&self, c: &CheckpointRow) -> Result<bool> {
         let n = self.conn.execute(
             "INSERT OR IGNORE INTO checkpoints (project_id, id, device_id, device_name, refname, commit_oid, tree_oid, head_oid,
-              branch, index_commit, created_ms, trigger, parents, summary, files_changed, origin, push_state, applied_ms, pruned)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+              branch, index_commit, created_ms, trigger, parents, summary, files_changed, origin, push_state, applied_ms, pruned, verified)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
                 c.project_id, c.id, c.device_id, c.device_name, c.refname, c.commit_oid, c.tree_oid, c.head_oid, c.branch,
                 c.index_commit, c.created_ms, c.trigger, c.parents.join(" "), c.summary, c.files_changed, c.origin,
-                c.push_state, c.applied_ms, c.pruned
+                c.push_state, c.applied_ms, c.pruned, c.verified
             ],
         )?;
         Ok(n > 0)

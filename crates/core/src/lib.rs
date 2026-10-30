@@ -18,6 +18,7 @@ pub mod paths;
 pub mod restore;
 pub mod retention;
 pub mod secrets;
+pub mod signing;
 pub mod snapshot;
 pub mod transport;
 pub mod util;

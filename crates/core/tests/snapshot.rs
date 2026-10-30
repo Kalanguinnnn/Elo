@@ -17,6 +17,8 @@ fn meta(id: &str) -> CheckpointMeta {
         trigger: Trigger::Manual,
         parents: vec![],
         summary: String::new(),
+        public_key: None,
+        signature: None,
     }
 }
 
@@ -52,7 +54,7 @@ fn capture_preserves_index_head_branch_and_covers_all_change_kinds() {
     let g = open(a);
     let state = snapshot::capture(&g).unwrap();
     let mut m = meta(&checkpoint::new_id(1_700_000_000_000));
-    snapshot::write_checkpoint(&g, &state, &mut m).unwrap();
+    snapshot::write_checkpoint(&g, &state, &mut m, None).unwrap();
 
     assert_eq!(std::fs::read(a.join(".git/index")).unwrap(), index_before, "index file must be byte-identical");
     assert_eq!(git(a, &["status", "--porcelain=v2", "--untracked-files=all"]), status_before);
@@ -96,7 +98,7 @@ fn unborn_repository_without_commits() {
     assert!(st.head.is_none());
     assert_eq!(st.branch.as_deref(), Some("refs/heads/main"));
     let mut m = meta(&checkpoint::new_id(5));
-    snapshot::write_checkpoint(&g, &st, &mut m).unwrap();
+    snapshot::write_checkpoint(&g, &st, &mut m, None).unwrap();
     assert!(!git_ok(r, &["rev-parse", "--verify", "HEAD"]), "still unborn");
     assert_eq!(tree_files(&g, &st.tree)["a.txt"], "x\n");
 }

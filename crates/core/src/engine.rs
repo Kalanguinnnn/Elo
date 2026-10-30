@@ -121,6 +121,10 @@ pub struct ApplyPreview {
     pub plan: ApplyPlan,
     pub auto_eligible: bool,
     pub ide: IdeCheck,
+    /// Signature valid with the device's pinned key.
+    pub origin_verified: bool,
+    /// The user approved this device for automatic apply.
+    pub device_approved: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,6 +212,9 @@ pub struct Engine {
     net_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     fs_activity: Mutex<HashMap<String, i64>>,
     notified: Mutex<HashMap<String, String>>,
+    /// This device's signing key; `None` if the credential vault is unusable
+    /// (checkpoints are then unsigned and never auto-applied elsewhere).
+    key: Option<crate::signing::DeviceKey>,
 }
 
 fn lock_for(map: &Mutex<HashMap<String, Arc<Mutex<()>>>>, id: &str) -> Arc<Mutex<()>> {
@@ -236,6 +243,17 @@ impl Engine {
             )?;
         }
         let projects = db.projects()?;
+        let key = match crate::signing::DeviceKey::load_or_create(cfg.secrets.as_ref()) {
+            Ok(k) => {
+                db.touch_device(&dev.id, &dev.name, now_ms())?;
+                db.pin_device_key(&dev.id, &k.public_key())?;
+                Some(k)
+            }
+            Err(e) => {
+                db.log(None, "warn", "signing_unavailable", &format!("Chave de assinatura indisponível ({e}); checkpoints sairão sem assinatura"))?;
+                None
+            }
+        };
         let engine = Engine {
             db: Mutex::new(db),
             cfg,
@@ -244,6 +262,7 @@ impl Engine {
             net_locks: Mutex::default(),
             fs_activity: Mutex::default(),
             notified: Mutex::default(),
+            key,
         };
         for p in projects {
             if let Ok(git) = Git::open(Path::new(&p.path)) {
@@ -590,8 +609,10 @@ impl Engine {
             trigger,
             parents: parents.clone(),
             summary: summary.clone(),
+            public_key: None,
+            signature: None,
         };
-        let commit = snapshot::write_checkpoint(git, &state, &mut meta)?;
+        let commit = snapshot::write_checkpoint(git, &state, &mut meta, self.key.as_ref())?;
         let row = CheckpointRow {
             project_id: p.id.clone(),
             id: id.clone(),
@@ -612,6 +633,7 @@ impl Engine {
             push_state: "pending".into(),
             applied_ms: None,
             pruned: false,
+            verified: self.key.is_some(),
         };
         {
             let db = self.db();
@@ -791,6 +813,7 @@ impl Engine {
                 continue;
             }
             let own = rc.meta.device_id == local_dev;
+            let verified = self.verify_origin(&rc)?;
             let row = CheckpointRow {
                 project_id: p.id.clone(),
                 id: rc.meta.id.clone(),
@@ -811,6 +834,7 @@ impl Engine {
                 push_state: if own { "pushed".into() } else { "remote".into() },
                 applied_ms: None,
                 pruned: false,
+                verified,
             };
             let db = self.db();
             if db.insert_checkpoint(&row)? {
@@ -819,6 +843,57 @@ impl Engine {
             }
         }
         Ok(n)
+    }
+
+    /// Signature check for an imported checkpoint, with key pinning: the first
+    /// valid key seen for a device id is pinned; a different key later is
+    /// reported as a possible forgery and never verifies.
+    fn verify_origin(&self, rc: &RefCheckpoint) -> Result<bool> {
+        if !crate::signing::verify(&rc.meta, &rc.tree) {
+            return Ok(false);
+        }
+        let key = rc.meta.public_key.clone().unwrap_or_default();
+        let dev = &rc.meta.device_id;
+        if *dev == self.device().id {
+            return Ok(self.key.as_ref().map(|k| k.public_key()) == Some(key));
+        }
+        let db = self.db();
+        db.touch_device(dev, &rc.meta.device_name, rc.meta.created_ms)?;
+        match db.device_trust(dev)?.0 {
+            None => {
+                db.pin_device_key(dev, &key)?;
+                Ok(true)
+            }
+            Some(pinned) if pinned == key => Ok(true),
+            Some(_) => {
+                drop(db);
+                self.log(
+                    None,
+                    "error",
+                    "device_key_mismatch",
+                    &format!(
+                        "Checkpoint {} diz vir de '{}', mas foi assinado com outra chave. Possível falsificação: não será aplicado automaticamente.",
+                        rc.meta.id, rc.meta.device_name
+                    ),
+                );
+                Ok(false)
+            }
+        }
+    }
+
+    /// Allow (or revoke) automatic apply of checkpoints signed by a device.
+    pub fn approve_device(&self, device_id: &str, approved: bool) -> Result<()> {
+        if device_id == self.device().id {
+            return Err(Error::Invalid("este é o próprio computador".into()));
+        }
+        self.db().set_device_approved(device_id, approved)?;
+        self.log(
+            None,
+            "warn",
+            "device_approval",
+            &format!("Dispositivo {device_id} {} para aplicação automática", if approved { "aprovado" } else { "desaprovado" }),
+        );
+        Ok(())
     }
 
     // ---- lineage --------------------------------------------------------
@@ -917,7 +992,15 @@ impl Engine {
         let ours = snapshot::capture(&git)?;
         let base = self.base_tree(&p, &git, &ours, &row)?;
         let plan = apply::plan(&git, &ours, &theirs, &base, opts)?;
-        Ok(ApplyPreview { auto_eligible: plan.auto_eligible(), plan, checkpoint: row, ide: self.ide_check(project_id) })
+        let device_approved = self.db().device_trust(&row.device_id)?.1;
+        Ok(ApplyPreview {
+            auto_eligible: plan.auto_eligible() && row.verified && device_approved,
+            origin_verified: row.verified,
+            device_approved,
+            plan,
+            checkpoint: row,
+            ide: self.ide_check(project_id),
+        })
     }
 
     /// Apply an incoming checkpoint. With `auto`, only proceeds when the plan
@@ -937,6 +1020,16 @@ impl Engine {
         let theirs = self.load_theirs(&git, &row)?;
 
         if auto {
+            // Audit finding 3: only checkpoints signed by a device the user
+            // approved may be written without review.
+            if !row.verified {
+                return Ok(ApplyOutcome::NeedsManual { reason: "assinatura do checkpoint não verificada".into() });
+            }
+            if !self.db().device_trust(&row.device_id)?.1 {
+                return Ok(ApplyOutcome::NeedsManual {
+                    reason: format!("o dispositivo '{}' ainda não foi aprovado para aplicação automática (Dispositivos)", row.device_name),
+                });
+            }
             let ide = self.ide_check(project_id);
             if !ide.safe {
                 return Ok(ApplyOutcome::NeedsManual { reason: ide.reason });

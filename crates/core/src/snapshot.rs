@@ -104,13 +104,22 @@ pub fn commit_tree(git: &Git, tree: &str, parents: &[&str], message: &str) -> Re
 
 /// Write the index commit and checkpoint commit and create its immutable ref.
 /// `meta.index_commit` is filled in here. Returns the checkpoint commit oid.
-pub fn write_checkpoint(git: &Git, state: &WorkState, meta: &mut CheckpointMeta) -> Result<String> {
+pub fn write_checkpoint(
+    git: &Git,
+    state: &WorkState,
+    meta: &mut CheckpointMeta,
+    signer: Option<&crate::signing::DeviceKey>,
+) -> Result<String> {
     let head_parent: Vec<&str> = state.head.as_deref().into_iter().collect();
     let idx_msg = format!("Continuity index {}\n\nContinuity-Index-Of: {}\n", meta.id, meta.id);
     let index_commit = commit_tree(git, &state.index_tree, &head_parent, &idx_msg)?;
     meta.index_commit = index_commit.clone();
     meta.head = state.head.clone();
     meta.branch = state.branch.clone();
+    if let Some(key) = signer {
+        meta.public_key = Some(key.public_key());
+        meta.signature = Some(key.sign(&crate::signing::payload(meta, &state.tree)));
+    }
     let mut parents = head_parent.clone();
     parents.push(&index_commit);
     let commit = commit_tree(git, &state.tree, &parents, &meta.to_message())?;
