@@ -1,0 +1,58 @@
+name: Release (draft)
+
+# Builds installers for a version tag and attaches them to a DRAFT release.
+# Nothing is published automatically: a maintainer reviews and publishes.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis,msi
+          - os: ubuntu-22.04
+            bundles: deb,appimage,rpm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libdbus-1-dev libssl-dev libxdo-dev pkg-config build-essential patchelf rpm
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install UI dependencies and build sidecars
+        working-directory: apps/desktop
+        run: |
+          npm ci
+          node scripts/prepare-sidecars.mjs
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Continuity ${{ github.ref_name }} (beta)"
+          releaseBody: "Build beta não assinada. Veja docs/INSTALL.md."
+          releaseDraft: true
+          prerelease: true
+          args: --bundles ${{ matrix.bundles }}

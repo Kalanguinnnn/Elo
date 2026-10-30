@@ -20,10 +20,10 @@ fn client() -> Result<Client, String> {
 
 /// Connect to the Agent, starting it (detached) if needed.
 fn ensure_agent() -> Result<Client, String> {
-    if let Ok(c) = client() {
-        if c.is_alive() {
-            return Ok(c);
-        }
+    if let Ok(c) = client()
+        && c.is_alive()
+    {
+        return Ok(c);
     }
     let exe = agent_exe().ok_or("binário continuity-agent não encontrado ao lado do aplicativo")?;
     let mut cmd = std::process::Command::new(exe);
@@ -33,10 +33,10 @@ fn ensure_agent() -> Result<Client, String> {
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(250));
-        if let Ok(c) = client() {
-            if c.is_alive() {
-                return Ok(c);
-            }
+        if let Ok(c) = client()
+            && c.is_alive()
+        {
+            return Ok(c);
         }
     }
     Err("o Agent não respondeu".into())

@@ -533,6 +533,48 @@ fn sync_and_shutdown_pushes_everything_and_clears_queue() {
 }
 
 #[test]
+fn autocommit_mode_commits_and_pushes_branch_but_respects_partial_staging() {
+    let f = fixture();
+    let ea = engine(&f.data_a, true);
+    let pa = add(&ea, &f.a);
+    ea.update_project(&pa, &ProjectPatch { autocommit: Some(true), ..Default::default() }).unwrap();
+    let head0 = git(&f.a, &["rev-parse", "HEAD"]);
+
+    // Partial staging → commit postponed, branch untouched, checkpoint still made.
+    write(&f.a, "staged.txt", "s\n");
+    git(&f.a, &["add", "staged.txt"]);
+    write(&f.a, "README.md", "unstaged\n");
+    assert!(ea.checkpoint_now(&pa, Trigger::Timer).unwrap().is_some());
+    assert_eq!(git(&f.a, &["rev-parse", "HEAD"]), head0);
+    assert_eq!(git(&f.a, &["diff", "--cached", "--name-only"]), "staged.txt");
+
+    // Clean staging → a conventional commit on the branch, pushed without force.
+    git(&f.a, &["reset", "-q"]);
+    ea.checkpoint_now(&pa, Trigger::Timer).unwrap();
+    let head1 = git(&f.a, &["rev-parse", "HEAD"]);
+    assert_ne!(head1, head0);
+    assert!(git(&f.a, &["log", "-1", "--format=%s"]).starts_with("chore(continuity):"));
+    assert_eq!(git(&f.a, &["status", "--porcelain"]), "", "worktree and index match the new commit");
+    ea.db().queue_retry_now(None).unwrap();
+    ea.process_queue().unwrap();
+    assert_eq!(git(&f.remote, &["rev-parse", "main"]), head1);
+
+    // Remote branch moved elsewhere → rejected, never forced.
+    write(&f.b, "other.txt", "b\n");
+    git(&f.b, &["add", "other.txt"]);
+    git(&f.b, &["commit", "-m", "from B"]);
+    git(&f.b, &["pull", "-q", "--rebase", "origin", "main"]);
+    git(&f.b, &["push", "-q", "origin", "main"]);
+    let remote_head = git(&f.remote, &["rev-parse", "main"]);
+    write(&f.a, "more.txt", "a\n");
+    ea.checkpoint_now(&pa, Trigger::Timer).unwrap();
+    ea.db().queue_retry_now(None).unwrap();
+    ea.process_queue().unwrap();
+    assert_eq!(git(&f.remote, &["rev-parse", "main"]), remote_head, "remote branch not overwritten");
+    assert!(ea.db().activity(Some(&pa), 50).unwrap().iter().any(|a| a.kind == "push_branch_rejected"));
+}
+
+#[test]
 fn eol_conversion_keeps_integrity_and_clean_status() {
     let f = fixture();
     for d in [&f.a, &f.b] {

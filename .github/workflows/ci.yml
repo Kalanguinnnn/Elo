@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libdbus-1-dev libssl-dev libxdo-dev pkg-config build-essential patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Git identity for test repositories
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+
+      - name: Clippy (engine, agent, CLI)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests (engine, agent, CLI)
+        run: cargo test
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: UI install, typecheck, tests, build
+        working-directory: apps/desktop
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Desktop crate (Tauri) compiles
+        working-directory: apps/desktop
+        run: |
+          node scripts/prepare-sidecars.mjs --debug
+          cargo clippy -p continuity-desktop -- -D warnings
