@@ -130,41 +130,69 @@ pub fn symlink_target_is_contained(link_rel: &str, target: &str) -> bool {
     true
 }
 
-/// Atomically write `data` to `target` (temp file in the same directory, then
-/// rename). Replaces a symlink at `target` instead of following it.
-pub fn atomic_write(root: &Path, target: &Path, data: &[u8], executable: bool) -> Result<()> {
-    check_no_symlink_ancestors(root, target)?;
-    let dir = target.parent().ok_or_else(|| Error::UnsafePath(target.display().to_string()))?;
-    fs::create_dir_all(dir)?;
-    check_no_symlink_ancestors(root, target)?;
-    if let Ok(md) = fs::symlink_metadata(target) {
-        if md.is_dir() {
-            return Err(Error::Conflict(format!("{} é um diretório", target.display())));
-        }
-        if md.file_type().is_symlink() {
-            fs::remove_file(target)?;
-        }
-    }
-    let tmp = dir.join(format!(".continuity-tmp-{}", crate::util::random_hex(6)));
-    {
-        let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-        f.write_all(data)?;
-        f.sync_all()?;
-    }
-    set_executable(&tmp, executable)?;
-    if let Err(e) = rename_replace(&tmp, target) {
-        let _ = fs::remove_file(&tmp);
-        return Err(e);
-    }
-    Ok(())
+// ---- confined writes (audit finding 5) -------------------------------------
+//
+// `check_no_symlink_ancestors` is a *policy* check done by name. The actual
+// create/rename/remove go through a `cap_std::fs::Dir` handle opened on the
+// root: every path is resolved relative to that handle and cannot leave it,
+// even if a directory is swapped for a link or junction between the check and
+// the write. That closes the TOCTOU window instead of narrowing it.
+
+use cap_std::ambient_authority;
+use cap_std::fs::{Dir, OpenOptions as CapOpenOptions};
+
+fn open_root(root: &Path) -> Result<Dir> {
+    Ok(Dir::open_ambient_dir(root, ambient_authority())?)
 }
 
-fn rename_replace(from: &Path, to: &Path) -> Result<()> {
+fn rel_of(root: &Path, target: &Path) -> Result<PathBuf> {
+    let rel = target.strip_prefix(root).map_err(|_| Error::UnsafePath(target.display().to_string()))?;
+    if rel.as_os_str().is_empty() || rel.components().any(|c| !matches!(c, Component::Normal(_))) {
+        return Err(Error::UnsafePath(target.display().to_string()));
+    }
+    Ok(rel.to_path_buf())
+}
+
+/// Open the parent directory of `rel` inside `root`, creating it if needed.
+/// Returns the parent handle and the final file name.
+fn parent_handle(root: &Dir, rel: &Path) -> Result<(Dir, std::ffi::OsString)> {
+    let name = rel.file_name().ok_or_else(|| Error::UnsafePath(rel.display().to_string()))?.to_os_string();
+    let parent = match rel.parent() {
+        Some(p) if !p.as_os_str().is_empty() => {
+            root.create_dir_all(p)?;
+            root.open_dir(p)?
+        }
+        _ => root.try_clone()?,
+    };
+    Ok((parent, name))
+}
+
+/// Write `data` at `rel` below `root` via a temp file + rename, all relative
+/// to directory handles that cannot escape `root`.
+pub fn write_confined(root: &Path, rel: &Path, data: &[u8], executable: bool) -> Result<()> {
+    let base = open_root(root)?;
+    let (dir, name) = parent_handle(&base, rel)?;
+    if let Ok(md) = dir.symlink_metadata(&name) {
+        if md.is_dir() {
+            return Err(Error::Conflict(format!("{} é um diretório", rel.display())));
+        }
+        if md.file_type().is_symlink() {
+            dir.remove_file(&name)?; // replace the link itself, never follow it
+        }
+    }
+    let tmp = format!(".continuity-tmp-{}", crate::util::random_hex(6));
+    {
+        let f = dir.open_with(&tmp, CapOpenOptions::new().write(true).create_new(true))?;
+        let mut f = f.into_std();
+        f.write_all(data)?;
+        f.sync_all()?;
+        set_executable(&f, executable)?;
+    }
     // On Windows a file opened without FILE_SHARE_DELETE by an editor makes the
     // rename fail transiently; retry briefly.
     let mut last = None;
     for _ in 0..5 {
-        match fs::rename(from, to) {
+        match dir.rename(&tmp, &dir, &name) {
             Ok(()) => return Ok(()),
             Err(e) => {
                 last = Some(e);
@@ -172,18 +200,25 @@ fn rename_replace(from: &Path, to: &Path) -> Result<()> {
             }
         }
     }
+    let _ = dir.remove_file(&tmp);
     Err(last.map(Error::Io).unwrap_or_else(|| Error::Other("rename".into())))
 }
 
+/// Atomically write `data` to `target` (inside `root`).
+pub fn atomic_write(root: &Path, target: &Path, data: &[u8], executable: bool) -> Result<()> {
+    check_no_symlink_ancestors(root, target)?;
+    write_confined(root, &rel_of(root, target)?, data, executable)
+}
+
 #[cfg(unix)]
-fn set_executable(p: &Path, exec: bool) -> Result<()> {
+fn set_executable(f: &fs::File, exec: bool) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let mode = if exec { 0o755 } else { 0o644 };
-    fs::set_permissions(p, fs::Permissions::from_mode(mode))?;
+    f.set_permissions(fs::Permissions::from_mode(mode))?;
     Ok(())
 }
 #[cfg(not(unix))]
-fn set_executable(_p: &Path, _exec: bool) -> Result<()> {
+fn set_executable(_f: &fs::File, _exec: bool) -> Result<()> {
     Ok(())
 }
 
@@ -197,16 +232,15 @@ pub fn write_symlink(root: &Path, target_path: &Path, link_rel: &str, link_targe
     #[cfg(unix)]
     {
         check_no_symlink_ancestors(root, target_path)?;
-        if let Some(dir) = target_path.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        if let Ok(md) = fs::symlink_metadata(target_path) {
+        let base = open_root(root)?;
+        let (dir, name) = parent_handle(&base, &rel_of(root, target_path)?)?;
+        if let Ok(md) = dir.symlink_metadata(&name) {
             if md.is_dir() {
                 return Err(Error::Conflict(format!("{} é um diretório", target_path.display())));
             }
-            fs::remove_file(target_path)?;
+            dir.remove_file(&name)?;
         }
-        std::os::unix::fs::symlink(link_target, target_path)?;
+        dir.symlink(link_target, &name)?;
         Ok(())
     }
     #[cfg(not(unix))]
@@ -215,22 +249,22 @@ pub fn write_symlink(root: &Path, target_path: &Path, link_rel: &str, link_targe
     }
 }
 
-/// Remove a file and then any directories left empty, never climbing above root.
+/// Remove a file and then any directories left empty, never climbing above
+/// root. All operations are relative to the confined root handle.
 pub fn remove_file_and_empty_parents(root: &Path, target: &Path) -> Result<()> {
     check_no_symlink_ancestors(root, target)?;
-    match fs::symlink_metadata(target) {
+    let rel = rel_of(root, target)?;
+    let base = open_root(root)?;
+    match base.symlink_metadata(&rel) {
         Ok(md) if md.is_dir() => return Err(Error::Conflict(format!("{} é um diretório", target.display()))),
-        Ok(_) => fs::remove_file(target)?,
+        Ok(_) => base.remove_file(&rel)?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
-    let mut dir = target.parent();
+    let mut dir = rel.parent();
     while let Some(d) = dir {
-        if d == root || !d.starts_with(root) {
-            break;
-        }
-        if fs::remove_dir(d).is_err() {
-            break; // not empty (or busy): stop
+        if d.as_os_str().is_empty() || base.remove_dir(d).is_err() {
+            break; // reached root, or not empty / busy
         }
         dir = d.parent();
     }
@@ -281,6 +315,47 @@ mod tests {
         remove_file_and_empty_parents(root, &t).unwrap();
         assert!(!root.join("x").exists());
         assert!(root.exists());
+    }
+
+    /// A directory link pointing outside `root` (symlink on Unix, junction on
+    /// Windows, which needs no privileges). Returns false if unsupported here.
+    fn make_dir_link(target: &Path, link: &Path) -> bool {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
+    }
+
+    #[test]
+    fn confined_write_cannot_escape_when_a_directory_is_swapped_for_a_link() {
+        // Audit finding 5: simulate the race outcome by calling the confined
+        // primitive directly, i.e. *after* the policy check already passed.
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        if !make_dir_link(outside.path(), &root.join("evil")) {
+            eprintln!("links not supported here; skipping");
+            return;
+        }
+        assert!(write_confined(root, Path::new("evil/payload.txt"), b"x", false).is_err());
+        assert!(!outside.path().join("payload.txt").exists(), "write escaped the project");
+        // Removal is confined too.
+        fs::write(outside.path().join("victim.txt"), b"keep").unwrap();
+        let _ = remove_file_and_empty_parents(root, &root.join("evil").join("victim.txt"));
+        assert!(outside.path().join("victim.txt").exists(), "delete escaped the project");
+        // And the normal path still works.
+        write_confined(root, Path::new("ok/file.txt"), b"fine", false).unwrap();
+        assert_eq!(fs::read(root.join("ok/file.txt")).unwrap(), b"fine");
     }
 
     #[cfg(unix)]

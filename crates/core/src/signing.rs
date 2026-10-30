@@ -71,7 +71,7 @@ pub fn verify(meta: &CheckpointMeta, tree: &str) -> bool {
 /// Short, human-comparable fingerprint shown on both machines when pairing.
 pub fn fingerprint(public_key_hex: &str) -> String {
     let digest = crate::util::sha256_hex(public_key_hex.as_bytes());
-    digest[..20].as_bytes().chunks(4).map(|c| String::from_utf8_lossy(c).to_uppercase()).collect::<Vec<_>>().join(" ")
+    digest.as_bytes()[..20].chunks(4).map(|c| String::from_utf8_lossy(c).to_uppercase()).collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
