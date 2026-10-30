@@ -4,7 +4,7 @@ Requisito em todas as plataformas: **Git 2.31 ou superior** disponível no `PATH
 
 ## Windows
 
-1. Baixe `Continuity_<versão>_x64-setup.exe` (NSIS) ou `Continuity_<versão>_x64_en-US.msi`
+1. Baixe `Elo_<versão>_x64-setup.exe` (NSIS) ou `Elo_<versão>_x64_en-US.msi`
    na página de *Releases*.
 2. As builds beta **não são assinadas**, então o SmartScreen pode exibir um aviso. Use
    "Mais informações → Executar assim mesmo" somente se o arquivo veio da página oficial
@@ -17,9 +17,9 @@ Credenciais do Windows.
 
 ## Linux
 
-- `.deb` (Debian/Ubuntu): `sudo apt install ./continuity_<versão>_amd64.deb`
-- `.rpm` (Fedora/openSUSE): `sudo dnf install ./continuity-<versão>.x86_64.rpm`
-- AppImage: `chmod +x Continuity_<versão>_amd64.AppImage && ./Continuity_<versão>_amd64.AppImage`
+- `.deb` (Debian/Ubuntu): `sudo apt install ./elo_<versão>_amd64.deb`
+- `.rpm` (Fedora/openSUSE): `sudo dnf install ./elo-<versão>.x86_64.rpm`
+- AppImage: `chmod +x Elo_<versão>_amd64.AppImage && ./Elo_<versão>_amd64.AppImage`
 
 Os dados ficam em `~/.local/share/elo`. O token do GitHub fica no Secret Service
 (GNOME Keyring/KWallet), que precisa estar ativo na sessão.
