@@ -64,7 +64,7 @@ fn full_flow_a_to_b_and_back_without_manual_commits() {
     applied(eb.apply(&pb, &inc, &ApplyOptions::default(), false).unwrap());
     assert_eq!(read(&f.b, "src/lib.rs"), "pub fn a() { 1 }\n");
     assert_eq!(read(&f.b, "src/new.rs"), "pub fn new() {}\n");
-    assert!(!exists(&f.b, "old.txt"));
+    assert!(!exists(&f.b, "stale.txt"));
     assert!(!exists(&f.b, "local.log"));
     assert_eq!(git(&f.b, &["rev-parse", "HEAD"]), b_head_before);
     assert_eq!(git(&f.b, &["symbolic-ref", "HEAD"]), "refs/heads/main");
@@ -554,6 +554,47 @@ fn audit3_forged_checkpoints_are_never_auto_applied() {
     eb.fetch(&pb).unwrap();
     let dev = eb.devices().unwrap().into_iter().find(|d| d.id == a_id).unwrap();
     assert!(dev.public_key.is_some() && !dev.approved, "re-pinned, waiting for a new approval");
+}
+
+#[test]
+fn audit2_finding2_key_reset_invalidates_checkpoints_verified_with_the_old_key() {
+    let f = fixture();
+    let ea = engine(&f.data_a, true);
+    let eb = engine(&f.data_b, true);
+    let pa = add(&ea, &f.a);
+    let pb = add(&eb, &f.b);
+    eb.update_project(&pb, &ProjectPatch { trusted: Some(true), ..Default::default() }).unwrap();
+    let a_id = ea.device().id;
+
+    // A checkpoint signed with A's current key arrives and stays pending.
+    write(&f.a, "old.txt", "signed with the old key
+");
+    let old = ea.checkpoint_now(&pa, Trigger::Timer).unwrap().unwrap();
+    push(&ea, &pa);
+    eb.fetch(&pb).unwrap();
+    assert!(eb.db().checkpoint(&pb, &old.id).unwrap().verified);
+
+    // The user resets A's key (say it leaked); a new key gets pinned and approved.
+    eb.reset_device_key(&a_id).unwrap();
+    assert!(!eb.db().checkpoint(&pb, &old.id).unwrap().verified, "reset clears verifications made with the old key");
+    let new_key = continuity_core::signing::DeviceKey::load_or_create(&continuity_core::credentials::MemoryStore::default()).unwrap();
+    forge_checkpoint(&f.a, &a_id, vec![old.id.clone()], Some(&new_key));
+    eb.fetch(&pb).unwrap();
+    let dev = eb.devices().unwrap().into_iter().find(|d| d.id == a_id).unwrap();
+    assert_eq!(dev.public_key, Some(new_key.public_key()));
+    eb.approve_device(&a_id, true).unwrap();
+
+    // The old-key checkpoint must not ride on the new approval, even if the
+    // stored flag were stale.
+    rusqlite::Connection::open(f.data_b.join("continuity.db"))
+        .unwrap()
+        .execute("UPDATE checkpoints SET verified = 1 WHERE id = ?1", [&old.id])
+        .unwrap();
+    let preview = eb.plan_apply(&pb, &old.id, &ApplyOptions::default()).unwrap();
+    assert!(!preview.origin_verified && !preview.auto_eligible);
+    let out = eb.apply(&pb, &old.id, &ApplyOptions::default(), true).unwrap();
+    assert!(matches!(out, ApplyOutcome::NeedsManual { .. }), "{out:?}");
+    assert!(!exists(&f.b, "stale.txt"));
 }
 
 #[test]
