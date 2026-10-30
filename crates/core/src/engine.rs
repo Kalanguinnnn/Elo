@@ -881,6 +881,14 @@ impl Engine {
         }
     }
 
+    /// (signed by the key pinned now, device approved) for a checkpoint about
+    /// to be applied. Unlike the `verified` column, this cannot be stale.
+    fn origin_trust(&self, rc: &RefCheckpoint) -> Result<(bool, bool)> {
+        let (pinned, approved) = self.db().device_trust(&rc.meta.device_id)?;
+        let verified = pinned.is_some() && pinned == rc.meta.public_key && crate::signing::verify(&rc.meta, &rc.tree);
+        Ok((verified, approved))
+    }
+
     /// Forget the pinned key of another device (e.g. its credential vault was
     /// reset). Its approval is revoked too.
     pub fn reset_device_key(&self, device_id: &str) -> Result<()> {
@@ -1003,10 +1011,10 @@ impl Engine {
         let ours = snapshot::capture(&git)?;
         let base = self.base_tree(&p, &git, &ours, &row)?;
         let plan = apply::plan(&git, &ours, &theirs, &base, opts)?;
-        let device_approved = self.db().device_trust(&row.device_id)?.1;
+        let (origin_verified, device_approved) = self.origin_trust(&theirs)?;
         Ok(ApplyPreview {
-            auto_eligible: plan.auto_eligible() && row.verified && device_approved,
-            origin_verified: row.verified,
+            auto_eligible: plan.auto_eligible() && origin_verified && device_approved,
+            origin_verified,
             device_approved,
             plan,
             checkpoint: row,
@@ -1032,11 +1040,14 @@ impl Engine {
 
         if auto {
             // Audit finding 3: only checkpoints signed by a device the user
-            // approved may be written without review.
-            if !row.verified {
+            // approved may be written without review. The signature is
+            // checked again here, against the key pinned now (second audit,
+            // finding 2): the stored flag may predate a key reset.
+            let (verified, approved) = self.origin_trust(&theirs)?;
+            if !verified {
                 return Ok(ApplyOutcome::NeedsManual { reason: "assinatura do checkpoint não verificada".into() });
             }
-            if !self.db().device_trust(&row.device_id)?.1 {
+            if !approved {
                 return Ok(ApplyOutcome::NeedsManual {
                     reason: format!("o dispositivo '{}' ainda não foi aprovado para aplicação automática (Dispositivos)", row.device_name),
                 });

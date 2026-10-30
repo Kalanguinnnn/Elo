@@ -8,7 +8,7 @@ branch** durante a captura, e **sem force push**.
 
 ```
 ┌──────────────────────────┐      IPC local (named pipe / unix socket,
-│ apps/desktop (Tauri 2)   │      JSON por linha + token por usuário)
+│ apps/desktop (Tauri 2)   │      JSON por linha + prova HMAC mútua)
 │  React + TS + Vite (UI)  │ ───────────────────────────────┐
 │  src-tauri: proxy IPC    │                                │
 └──────────────────────────┘                                ▼

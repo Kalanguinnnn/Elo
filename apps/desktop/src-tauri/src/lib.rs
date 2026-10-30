@@ -18,12 +18,35 @@ fn client() -> Result<Client, String> {
     Client::from_endpoint(Endpoint::default_for(&continuity_core::default_data_dir())).map_err(|e| e.to_string())
 }
 
+/// `Ok` when the Agent answers; `Err(Some)` when a process that failed to
+/// prove it is the Agent holds the channel (never spawn over it or send it
+/// anything); `Err(None)` when nothing usable is listening.
+fn probe() -> Result<Client, Option<String>> {
+    for attempt in 0..2 {
+        let c = client().map_err(|_| None)?;
+        match c.call("ping", Value::Null) {
+            Ok(_) => return Ok(c),
+            // The token file is re-read on retry: the Agent may have just
+            // restarted with a new token.
+            Err(continuity_core::Error::Impostor(_)) if attempt == 0 => std::thread::sleep(Duration::from_millis(500)),
+            Err(e @ continuity_core::Error::Impostor(_)) => {
+                return Err(Some(format!(
+                    "{e}. Outro processo está ocupando o canal do Agent do Elo; nenhuma informação foi enviada a ele. \
+                     Reinicie o computador e, se persistir, verifique os processos de outros usuários."
+                )));
+            }
+            Err(_) => return Err(None),
+        }
+    }
+    Err(None)
+}
+
 /// Connect to the Agent, starting it (detached) if needed.
 fn ensure_agent() -> Result<Client, String> {
-    if let Ok(c) = client()
-        && c.is_alive()
-    {
-        return Ok(c);
+    match probe() {
+        Ok(c) => return Ok(c),
+        Err(Some(msg)) => return Err(msg),
+        Err(None) => {}
     }
     let exe = agent_exe().ok_or("binário continuity-agent não encontrado ao lado do aplicativo")?;
     let mut cmd = std::process::Command::new(exe);
@@ -33,10 +56,10 @@ fn ensure_agent() -> Result<Client, String> {
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(250));
-        if let Ok(c) = client()
-            && c.is_alive()
-        {
-            return Ok(c);
+        match probe() {
+            Ok(c) => return Ok(c),
+            Err(Some(msg)) => return Err(msg),
+            Err(None) => {}
         }
     }
     Err("o Agent não respondeu".into())

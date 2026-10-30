@@ -102,8 +102,9 @@ fn main() {
             Err(e) => fail(&e.to_string()),
         }
     } else {
-        match Client::from_endpoint(Endpoint::default_for(&data_dir)) {
-            Ok(c) if c.is_alive() => Backend::Agent(c),
+        match Client::from_endpoint(Endpoint::default_for(&data_dir)).map(|c| (c.call("ping", serde_json::Value::Null), c)) {
+            Ok((Ok(_), c)) => Backend::Agent(c),
+            Ok((Err(e @ continuity_core::Error::Impostor(_)), _)) => fail(&format!("{e} (nada foi enviado a ele)")),
             _ => fail("o Agent não está em execução (inicie o app ou `continuity-agent`), ou use --direct"),
         }
     };

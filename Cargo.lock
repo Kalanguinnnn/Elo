@@ -615,6 +615,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.3.4",
  "hex",
+ "hmac",
  "interprocess",
  "keyring",
  "log",
@@ -627,6 +628,8 @@ dependencies = [
  "thiserror 2.0.21",
  "ureq",
  "uuid",
+ "widestring",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

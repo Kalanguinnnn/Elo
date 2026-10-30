@@ -34,6 +34,10 @@ pub enum Error {
     Credentials(String),
     #[error("rede: {0}")]
     Network(String),
+    /// The process answering on the Agent's channel failed to prove it is
+    /// the Agent; nothing was sent to it.
+    #[error("canal do Agent não autenticado: {0}")]
+    Impostor(String),
     #[error("{0}")]
     Other(String),
 }
@@ -75,6 +79,7 @@ impl Error {
             Error::UnsafePath(_) => "unsafe_path",
             Error::NotFound(_) => "not_found",
             Error::Invalid(_) => "invalid",
+            Error::Impostor(_) => "impostor",
             Error::Conflict(_) => "conflict",
             Error::NeedsConfirmation(_) => "needs_confirmation",
             Error::Db(_) => "db",

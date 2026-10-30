@@ -462,9 +462,13 @@ impl Db {
     }
 
     /// Forget a device's pinned key and approval (it re-pins on the next
-    /// signed checkpoint and must be approved again).
+    /// signed checkpoint and must be approved again). Checkpoints verified
+    /// with the forgotten key lose that status.
     pub fn reset_device_key(&self, id: &str) -> Result<()> {
-        self.conn.execute("UPDATE devices SET public_key = NULL, approved = 0 WHERE id = ?1", [id])?;
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("UPDATE devices SET public_key = NULL, approved = 0 WHERE id = ?1", [id])?;
+        tx.execute("UPDATE checkpoints SET verified = 0 WHERE device_id = ?1", [id])?;
+        tx.commit()?;
         Ok(())
     }
 

@@ -12,6 +12,7 @@ dirs = "6"
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "fast", "zeroize"] }
 getrandom = "0.3"
 hex = "0.4.3"
+hmac = "0.12"
 interprocess = "2.4.7"
 keyring = { version = "3", features = ["windows-native", "sync-secret-service", "crypto-rust"] }
 log = "0.4.34"
@@ -23,6 +24,10 @@ sha2 = "0.10"
 thiserror = "2.0.21"
 ureq = { version = "2", features = ["json"] }
 uuid = { version = "1.29.0", features = ["v4"] }
+
+[target."cfg(windows)".dependencies]
+widestring = "1"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
