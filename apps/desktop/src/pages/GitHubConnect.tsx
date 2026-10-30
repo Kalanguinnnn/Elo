@@ -25,6 +25,7 @@ export default function GitHubConnect({ onChange }: { onChange?: () => void }) {
   const st = useGithub();
   const [token, setToken] = useState("");
   const [code, setCode] = useState<DeviceCode | null>(null);
+  const [openFailed, setOpenFailed] = useState(false);
   const act = useAction();
 
   const saveToken = () =>
@@ -43,7 +44,10 @@ export default function GitHubConnect({ onChange }: { onChange?: () => void }) {
     act.run(async () => {
       const c = await call<DeviceCode>("github.device_start");
       setCode(c);
-      await openUrl(c.verification_uri);
+      setOpenFailed(false);
+      // The code is already on screen; if the browser cannot be opened the
+      // user can open the address by hand while we keep waiting.
+      await openUrl(c.verification_uri).catch(() => setOpenFailed(true));
       let interval = Math.max(5, c.interval) * 1000;
       for (let i = 0; i < 120; i++) {
         await new Promise((r) => setTimeout(r, interval));
@@ -83,8 +87,12 @@ export default function GitHubConnect({ onChange }: { onChange?: () => void }) {
         <>
           <button className="primary" onClick={startDevice} disabled={act.busy}>Entrar com GitHub (navegador)</button>
           {code && (
-            <div className="notice">
-              Digite o código <strong className="mono">{code.user_code}</strong> em {code.verification_uri}
+            <div className="notice stack">
+              <span>
+                Digite o código <strong className="mono">{code.user_code}</strong> em <span className="mono">{code.verification_uri}</span> e
+                autorize o Elo. Aguardando a autorização…
+              </span>
+              {openFailed && <span className="small">Não foi possível abrir o navegador automaticamente; abra o endereço acima manualmente.</span>}
             </div>
           )}
         </>

@@ -8,6 +8,9 @@
     "dialog:allow-open",
     "dialog:allow-message",
     "dialog:allow-ask",
-    "opener:allow-open-url"
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://github.com/*" }, { "url": "https://git-scm.com/*" }]
+    }
   ]
 }
