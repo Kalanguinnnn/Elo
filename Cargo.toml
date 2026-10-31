@@ -12,6 +12,15 @@ rust-version = "1.89"
 license = "MIT"
 repository = "https://github.com/Kalanguinnnn/Elo"
 
+# Development builds: line numbers are enough for panics and backtraces in
+# our own crates, and third-party crates (the bulk of target/debug, with the
+# whole Tauri/WebView stack) carry no debug info at all. Release is unaffected.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 4
