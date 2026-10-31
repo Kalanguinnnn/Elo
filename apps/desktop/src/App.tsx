@@ -50,6 +50,11 @@ function health(list: ProjectStatus[] | null, error: string | null): { tone: "ok
   return { tone: "ok", text: "Tudo em dia" };
 }
 
+/** Remount (and replay the entrance animation) only when the user actually moves. */
+function routeKey(r: Route): string {
+  return [r.page, "id" in r ? r.id : "", "from" in r ? r.from : "", "to" in r ? r.to : "", "conflictId" in r ? r.conflictId : ""].join("|");
+}
+
 export default function App() {
   const [route, setRoute] = useState<Route>({ page: "projects" });
   const projects = useLoad(() => call<ProjectStatus[]>("projects.list"), [], 8000);
@@ -144,7 +149,9 @@ export default function App() {
           <Notice error={quit.error} message={quit.message} />
         </div>
       </aside>
-      <main className="content">{body}</main>
+      <main className="content">
+        <div className="route" key={routeKey(route)}>{body}</div>
+      </main>
     </div>
   );
 }

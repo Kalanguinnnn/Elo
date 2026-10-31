@@ -295,3 +295,67 @@ textarea.editor { min-height: 260px; width: 100%; }
 .log-row + .log-row { border-top: 1px solid var(--hairline); }
 .finding { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 details summary { cursor: default; color: var(--muted); font-size: 12px; }
+
+/* ---------- motion ----------
+   Short, transform/opacity-only animations (GPU-friendly). "Modo desempenho"
+   in Ajustes sets data-motion="off" on <html>, which turns all of it off. */
+:root {
+  --ease-out: cubic-bezier(0.2, 0.75, 0.25, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --t-fast: 0.14s;
+  --t: 0.22s;
+}
+@keyframes page-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px) scale(0.995); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes notice-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes pop { 0% { transform: scale(0.4); opacity: 0; } 70% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
+
+/* page change: each route mounts a fresh .route, so this plays once per navigation */
+.route > .page { animation: page-in 0.28s var(--ease-out) backwards; }
+.content { scroll-behavior: smooth; }
+
+/* staggered entrance for collections (only on mount; polling re-renders keep the nodes) */
+.list > *, .timeline > *, .grid3 > .stat, .group > *, .log-row, .table tbody tr, .steps li {
+  animation: rise 0.32s var(--ease-out) backwards;
+}
+.list > *:nth-child(2), .timeline > *:nth-child(2), .grid3 > .stat:nth-child(2), .group > *:nth-child(2), .log-row:nth-child(2), .table tbody tr:nth-child(2), .steps li:nth-child(2) { animation-delay: 0.04s; }
+.list > *:nth-child(3), .timeline > *:nth-child(3), .grid3 > .stat:nth-child(3), .group > *:nth-child(3), .log-row:nth-child(3), .table tbody tr:nth-child(3), .steps li:nth-child(3) { animation-delay: 0.08s; }
+.list > *:nth-child(4), .timeline > *:nth-child(4), .group > *:nth-child(4), .log-row:nth-child(4), .table tbody tr:nth-child(4), .steps li:nth-child(4) { animation-delay: 0.12s; }
+.list > *:nth-child(5), .timeline > *:nth-child(5), .group > *:nth-child(5), .log-row:nth-child(5), .table tbody tr:nth-child(5) { animation-delay: 0.16s; }
+.list > *:nth-child(n + 6), .timeline > *:nth-child(n + 6), .group > *:nth-child(n + 6), .log-row:nth-child(n + 6), .table tbody tr:nth-child(n + 6) { animation-delay: 0.2s; }
+.card, .empty, .diff, .split, .filelist.side { animation: fade-in 0.3s var(--ease-out) backwards; }
+.notice { animation: notice-in 0.2s var(--ease-out) backwards; }
+.nav .count, .gh-avatar, .code-char { animation: pop 0.36s var(--ease-spring) backwards; }
+.code-char:nth-child(2) { animation-delay: 0.03s; } .code-char:nth-child(3) { animation-delay: 0.06s; }
+.code-char:nth-child(4) { animation-delay: 0.09s; } .code-char:nth-child(6) { animation-delay: 0.12s; }
+.code-char:nth-child(7) { animation-delay: 0.15s; } .code-char:nth-child(8) { animation-delay: 0.18s; }
+.code-char:nth-child(9) { animation-delay: 0.21s; }
+details[open] > :not(summary) { animation: notice-in 0.2s var(--ease-out) backwards; }
+
+/* hover / press feedback */
+button { transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), opacity var(--t-fast), box-shadow var(--t), transform var(--t-fast) var(--ease-out); }
+button:active:not(:disabled) { transform: scale(0.97); }
+.nav { transition: background var(--t) var(--ease-out), color var(--t-fast); }
+.nav svg { transition: color var(--t-fast), transform var(--t) var(--ease-spring); }
+.nav:hover:not(.active) svg { transform: translateX(1px) scale(1.06); }
+.nav:active:not(:disabled) { transform: scale(0.98); }
+.list-item { transition: border-color var(--t), box-shadow var(--t) var(--ease-out), transform var(--t) var(--ease-out); }
+.list-item:hover:not(:disabled) { transform: translateY(-1.5px); box-shadow: var(--shadow-pop); }
+.list-item:active:not(:disabled) { transform: translateY(0) scale(0.995); }
+.project-glyph { transition: background var(--t), color var(--t), transform var(--t) var(--ease-spring); }
+.list-item:hover .project-glyph { color: var(--fg); transform: scale(1.05); }
+.file, .tabs button, .seg button { transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t); }
+.dot, .badge, .badge::before, .steps li { transition: background var(--t), color var(--t), box-shadow var(--t), border-color var(--t); }
+.health { transition: color var(--t); }
+input, select, textarea { transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+.toggle input::after { transition: transform 0.24s var(--ease-spring); }
+.toggle input:active:not(:disabled)::after { width: 19px; }
+.toggle input:checked:active:not(:disabled)::after { transform: translateX(11px); }
+
+/* performance mode: no animations, transitions or smooth scrolling */
+:root[data-motion="off"] *, :root[data-motion="off"] *::before, :root[data-motion="off"] *::after {
+  animation: none !important; transition: none !important; scroll-behavior: auto !important;
+}
+:root[data-motion="off"] .list-item:hover, :root[data-motion="off"] .list-item:active,
+:root[data-motion="off"] .list-item:hover .project-glyph, :root[data-motion="off"] .nav:hover svg { transform: none; }

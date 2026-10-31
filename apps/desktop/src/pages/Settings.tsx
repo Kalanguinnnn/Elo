@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { call, type Settings } from "../api";
 import { dateTime } from "../format";
 import { Notice, Toggle, useAction, useLoad } from "../ui";
+import { useMotion } from "../motion";
 import GitHubConnect from "./GitHubConnect";
 
 interface AgentStatus {
@@ -20,6 +21,7 @@ export default function SettingsPage() {
   const agent = useLoad(() => call<AgentStatus>("agent.status"), [], 5000);
   const [draft, setDraft] = useState<Settings | null>(null);
   const act = useAction();
+  const motion = useMotion();
   useEffect(() => { if (s.data) setDraft(s.data); }, [s.data]);
   if (!draft) return <div className="page"><Notice error={s.error} /></div>;
   const num = (k: keyof Settings, mult = 1) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft({ ...draft, [k]: Number(e.target.value) * mult });
@@ -58,6 +60,17 @@ export default function SettingsPage() {
       </section>
       <div className="row"><button className="primary" onClick={save} disabled={act.busy}>Salvar</button></div>
       <Notice error={act.error} message={act.message} />
+      <section>
+        <h2>Aparência</h2>
+        <div className="card stack">
+          <Toggle
+            checked={motion.performance}
+            onChange={(v) => motion.set(v ? "off" : "full")}
+            label="Modo desempenho"
+            hint="Desliga animações e transições da janela. Aplicado na hora, só neste computador."
+          />
+        </div>
+      </section>
       <section>
         <h2>Agent em segundo plano</h2>
         <div className="card stack">

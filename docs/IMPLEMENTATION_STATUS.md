@@ -44,6 +44,7 @@ Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 | GitHub: validar token, listar e criar repositórios | 🟡 | Implementado; **não executado** contra a API real nesta sessão. |
 | Login GitHub pelo navegador (device flow) | 🟡 | Implementado; exige o client id de um OAuth App registrado (decisão/serviço externo). Configurável em Configurações. |
 | Interface desktop (10 telas) | 🟡 | Compila (tsc estrito), build do Vite OK, app abre e chama o Agent. **Inspeção visual tela a tela não realizada.** |
+| Animações e modo desempenho | ✅ | Transições de página, entrada escalonada de listas e feedback de hover/clique só com `opacity`/`transform`; **Ajustes → Aparência → Modo desempenho** desliga tudo (`data-motion="off"`), salvo por computador e aplicado antes da primeira pintura. Testes `motion.test.ts`; verificado no app (transição capturada a 40 ms) e no webview (`animationName: none` e transições 0 s com o modo ligado, inclusive após recarregar). |
 | Instaladores Windows (NSIS e MSI) | ✅ | Gerados localmente em `target/release/bundle`. A instalação via instalador não foi testada; as builds não são assinadas (por requisito). |
 | Pacotes Linux (deb, rpm, AppImage) | ⏳ | Configurados no `release.yml`; dependem da execução no CI. |
 | CI (Windows/Linux) e release em rascunho | ⏳ | Workflows escritos; não executados (sem remoto GitHub). |
