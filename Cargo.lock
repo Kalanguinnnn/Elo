@@ -588,7 +588,7 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "continuity-agent"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "continuity-core",
  "log",
@@ -599,7 +599,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "continuity-core",
  "serde_json",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cap-std",
  "chrono",
@@ -634,7 +634,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "continuity-core",
  "serde_json",

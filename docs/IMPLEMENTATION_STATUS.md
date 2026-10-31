@@ -1,6 +1,6 @@
 # Estado da implementação
 
-Atualizado em 2026-10-31 (versão 0.1.0). Ambiente de validação: Windows 11 Pro, Rust 1.99.1, Node 24.18,
+Atualizado em 2026-10-31 (versão 0.1.1). Ambiente de validação: Windows 11 Pro, Rust 1.99.1, Node 24.18,
 Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 
 ## Milestones
