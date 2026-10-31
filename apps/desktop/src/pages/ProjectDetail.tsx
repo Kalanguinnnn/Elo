@@ -239,6 +239,7 @@ export default function ProjectDetail({ nav, id, onChanged }: { nav: Nav; id: st
         <div className="stat"><span>Último envio</span><strong>{relTime(pr.last_push_ms)}</strong></div>
         <div className="stat"><span>Última busca</span><strong>{relTime(pr.last_fetch_ms)}</strong></div>
       </div>
+      {s.unsafe_config && <div className="notice error">Sincronização pausada por segurança: {s.unsafe_config}.</div>}
       {s.git_busy && <div className="notice">Operação Git em andamento ({s.git_busy}); checkpoints aguardam a conclusão.</div>}
       {s.queue_error && <div className={`notice ${s.queue_failure_kind === "offline" ? "" : "error"}`}>Fila: {s.queue_error}</div>}
       {s.open_conflicts > 0 && (

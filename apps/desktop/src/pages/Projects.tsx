@@ -15,6 +15,7 @@ export function statusBadges(s: ProjectStatus) {
   if (s.incoming) b.push(<Badge key="i" tone="info">{s.incoming} atualização(ões)</Badge>);
   if (s.quarantined) b.push(<Badge key="q" tone="err">credencial bloqueada</Badge>);
   if (s.needs_review) b.push(<Badge key="r" tone="warn">revisar segredos</Badge>);
+  if (s.unsafe_config) b.push(<Badge key="u" tone="err">config. Git insegura</Badge>);
   if (s.queue_failure_kind === "offline") b.push(<Badge key="o" tone="warn">offline — na fila</Badge>);
   else if (s.queue_error) b.push(<Badge key="e" tone="err">erro de envio</Badge>);
   if (s.interrupted_ops) b.push(<Badge key="x" tone="warn">operação interrompida</Badge>);

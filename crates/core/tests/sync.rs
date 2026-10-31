@@ -801,3 +801,130 @@ fn eol_conversion_keeps_integrity_and_clean_status() {
     assert_eq!(st, " M src/lib.rs", "only the synced change shows: {st}");
     assert_eq!(git(&f.b, &["diff", "--stat"]), git(&f.a, &["diff", "--stat"]));
 }
+
+/// A path `sh` understands on every platform (Git for Windows' sh takes C:/x).
+fn sh_path(p: &std::path::Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
+}
+
+#[test]
+fn audit3_finding1_project_git_config_cannot_run_programs() {
+    let f = fixture();
+    let ea = engine(&f.data_a, true);
+    let pa = add(&ea, &f.a);
+    let tmp = f.remote.parent().unwrap();
+    let marker = |n: &str| tmp.join(format!("ran-{n}"));
+
+    // (a) core.fsmonitor and (b) a reference-transaction hook: overridden on
+    // every call, so Elo keeps working and neither runs.
+    git(&f.a, &["config", "core.fsmonitor", &format!("echo x > {}", sh_path(&marker("fsmonitor")))]);
+    write(&f.a, ".git/hooks/reference-transaction", format!("#!/bin/sh\necho x > {}\n", sh_path(&marker("hook"))));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(f.a.join(".git/hooks/reference-transaction"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    write(&f.a, "src/lib.rs", "pub fn a() { 1 }\n");
+    let st = ea.project_status(&pa).unwrap();
+    assert_eq!(st.uncommitted_changes, Some(1));
+    assert!(st.unsafe_config.is_none(), "{:?}", st.unsafe_config);
+    ea.checkpoint_now(&pa, Trigger::Timer).unwrap().expect("checkpoint");
+    assert!(!marker("fsmonitor").exists(), "core.fsmonitor do projeto foi executado");
+    assert!(!marker("hook").exists(), "hook do projeto foi executado");
+    // Control: plain Git does run both, so the payloads are real.
+    git(&f.a, &["status", "--porcelain"]);
+    git(&f.a, &["update-ref", "refs/control", "HEAD"]);
+    assert!(marker("fsmonitor").exists() && marker("hook").exists(), "controle: git comum executaria os comandos");
+    git(&f.a, &["config", "--unset", "core.fsmonitor"]);
+    std::fs::remove_file(f.a.join(".git/hooks/reference-transaction")).unwrap();
+
+    // (c) a clean filter defined in the project's config: Elo refuses to
+    // capture and says why, instead of running it.
+    git(&f.a, &["config", "filter.evil.clean", &format!("echo x > {}; cat", sh_path(&marker("filter")))]);
+    write(&f.a, ".git/info/attributes", "*.rs filter=evil\n");
+    write(&f.a, "src/lib.rs", "pub fn a() { 2 }\n");
+    let err = ea.checkpoint_now(&pa, Trigger::Timer).unwrap_err();
+    assert_eq!(err.code(), "unsafe_repo_config", "{err}");
+    assert!(err.to_string().contains("filter.evil.clean"), "{err}");
+    let st = ea.project_status(&pa).unwrap();
+    assert!(st.unsafe_config.as_deref().is_some_and(|m| m.contains("filter.evil.clean")), "{:?}", st.unsafe_config);
+    assert!(!marker("filter").exists(), "filtro do projeto foi executado");
+    // ... and refuses to add a repository configured like that.
+    let eb = engine(&f.data_b, true);
+    git(&f.b, &["config", "credential.helper", "!echo evil"]);
+    let err = eb
+        .add_project(&continuity_core::engine::AddProjectOptions { path: f.b.to_str().unwrap().into(), ..Default::default() })
+        .unwrap_err();
+    assert_eq!(err.code(), "unsafe_repo_config", "{err}");
+    git(&f.a, &["add", "-A"]);
+    assert!(marker("filter").exists(), "controle: git comum executaria o filtro");
+    git(&f.a, &["reset", "-q"]);
+    git(&f.a, &["config", "--remove-section", "filter.evil"]);
+
+    // (d) a URL rewrite to the ext:: transport: the effective URL is checked
+    // before fetch/push, and the transport is not allowed anyway.
+    let remote = f.remote.to_str().unwrap();
+    git(&f.a, &["config", "protocol.ext.allow", "always"]);
+    git(&f.a, &["config", &format!("url.ext::sh -c echo% x>{}.insteadOf", sh_path(&marker("ext"))), remote]);
+    let err = ea.fetch(&pa).unwrap_err();
+    assert!(err.to_string().contains("transporte"), "{err}");
+    let err = ea.push_pending(&pa).unwrap_err();
+    assert!(err.to_string().contains("transporte"), "{err}");
+    assert!(!marker("ext").exists(), "transporte ext:: foi executado");
+    let _ = git_ok(&f.a, &["fetch", "origin"]);
+    assert!(marker("ext").exists(), "controle: git comum executaria o ext::");
+}
+
+#[test]
+fn audit3_finding2_credentials_in_urls_are_refused_and_never_shown() {
+    let f = fixture();
+    let ea = engine(&f.data_a, true);
+    let pa = add(&ea, &f.a);
+    let secret = "ghp_000000000000000000000000000000000000";
+    let with_token = format!("https://user:{secret}@127.0.0.1:9/x.git");
+
+    let err = ea.set_project_remote(&pa, &with_token).unwrap_err();
+    assert!(!err.to_string().contains(secret), "{err}");
+    let err = ea.clone_project(&with_token, f.remote.parent().unwrap().join("c").to_str().unwrap()).unwrap_err();
+    assert!(!err.to_string().contains(secret), "{err}");
+    let eb = engine(&f.data_b, true);
+    let err = eb
+        .add_project(&continuity_core::engine::AddProjectOptions {
+            path: f.b.to_str().unwrap().into(),
+            remote_url: Some(format!("https://{secret}@github.com/a/b.git")),
+            ..Default::default()
+        })
+        .unwrap_err();
+    assert!(err.to_string().contains("token"), "{err}");
+    assert_eq!(git(&f.a, &["remote", "get-url", "origin"]), f.remote.to_str().unwrap(), "nada foi gravado");
+
+    // A URL configured before (or outside) Elo: never shown or logged in full.
+    git(&f.a, &["remote", "set-url", "origin", &with_token]);
+    let st = ea.project_status(&pa).unwrap();
+    assert_eq!(st.remote_url.as_deref(), Some("https://***@127.0.0.1:9/x.git"));
+    let err = ea.fetch(&pa).unwrap_err().to_string();
+    assert!(!err.contains(secret), "{err}");
+    let _ = ea.sync_project(&pa, false);
+    let log = ea.db().activity(Some(&pa), 200).unwrap();
+    assert!(log.iter().all(|a| !a.message.contains(secret)), "{log:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn audit3_finding3_engine_creates_a_private_profile_on_every_entry_point() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tmp.path().join("new/profile");
+    let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    // As `continuity --direct` does: Engine::open without the Agent.
+    let _e = engine(&data, true);
+    assert_eq!(mode(&data), 0o700);
+    assert_eq!(mode(&data.join("continuity.db")), 0o600);
+    // An existing profile with loose permissions is tightened on open.
+    drop(_e);
+    std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(data.join("continuity.db"), std::fs::Permissions::from_mode(0o644)).unwrap();
+    let _e = engine(&data, true);
+    assert_eq!(mode(&data), 0o700);
+    assert_eq!(mode(&data.join("continuity.db")), 0o600);
+}

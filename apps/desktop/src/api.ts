@@ -42,6 +42,7 @@ export interface ProjectStatus {
   queue_error: string | null;
   queue_failure_kind: string | null;
   git_busy: string | null;
+  unsafe_config: string | null;
 }
 
 export interface Checkpoint {

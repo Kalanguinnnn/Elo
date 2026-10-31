@@ -66,7 +66,7 @@ fn push_specs(git: &Git, remote: &str, specs: &[String], auth: &NetAuth) -> Resu
             return Err(Error::Invalid(format!("refspec proibida: {s}")));
         }
     }
-    validate_remote_name(remote)?;
+    check_effective_urls(git, remote)?;
     let mut args: Vec<&OsStr> = vec![OsStr::new("push"), OsStr::new("--porcelain"), OsStr::new("--no-verify"), OsStr::new(remote)];
     for s in specs {
         args.push(OsStr::new(s));
@@ -81,7 +81,7 @@ pub fn delete_remote_refs(git: &Git, remote: &str, refs: &[String], auth: &NetAu
     if refs.is_empty() {
         return Ok(());
     }
-    validate_remote_name(remote)?;
+    check_effective_urls(git, remote)?;
     let mut args: Vec<&OsStr> = vec![OsStr::new("push"), OsStr::new("--porcelain"), OsStr::new("--no-verify"), OsStr::new(remote)];
     let specs: Vec<String> = refs.iter().filter(|r| r.starts_with(REF_PREFIX)).map(|r| format!(":{r}")).collect();
     for s in &specs {
@@ -94,7 +94,7 @@ pub fn delete_remote_refs(git: &Git, remote: &str, refs: &[String], auth: &NetAu
 /// Fetch every checkpoint ref from the remote into the same local namespace.
 /// No `+`: an existing local checkpoint ref is never rewritten.
 pub fn fetch_checkpoints(git: &Git, remote: &str, auth: &NetAuth) -> Result<()> {
-    validate_remote_name(remote)?;
+    check_effective_urls(git, remote)?;
     let spec = format!("{REF_PREFIX}*:{REF_PREFIX}*");
     git.run(
         os_args!["fetch", "--no-tags", "--no-write-fetch-head", "--no-auto-gc", "--quiet", remote, spec],
@@ -105,7 +105,7 @@ pub fn fetch_checkpoints(git: &Git, remote: &str, auth: &NetAuth) -> Result<()> 
 
 /// Cheap connectivity probe.
 pub fn probe_remote(git: &Git, remote: &str, auth: &NetAuth) -> Result<()> {
-    validate_remote_name(remote)?;
+    check_effective_urls(git, remote)?;
     git.run(os_args!["ls-remote", "--heads", remote], auth.apply(RunOpts::default()))?;
     Ok(())
 }
@@ -117,9 +117,40 @@ pub fn validate_remote_name(remote: &str) -> Result<()> {
     Ok(())
 }
 
-/// URL validation for user-provided remotes: no option injection, no `ext::`
-/// transport (which runs arbitrary commands).
+/// The URLs Git will really contact for `remote`, after `url.*.insteadOf` /
+/// `pushInsteadOf` rewriting, must pass the same transport checks as a URL
+/// typed by the user. A repository's config cannot turn a remote into
+/// `ext::<command>` (also refused by [`crate::git::ALLOWED_PROTOCOLS`]).
+pub fn check_effective_urls(git: &Git, remote: &str) -> Result<()> {
+    validate_remote_name(remote)?;
+    for push in [false, true] {
+        let args: &[&OsStr] = if push {
+            os_args!["remote", "get-url", "--push", "--all", remote]
+        } else {
+            os_args!["remote", "get-url", "--all", remote]
+        };
+        for url in git.run_text(args)?.lines().filter(|l| !l.trim().is_empty()) {
+            check_transport(url)?;
+        }
+    }
+    Ok(())
+}
+
+/// URL validation for user-provided remotes: no option injection, no remote
+/// helpers such as `ext::` (which runs arbitrary commands), and no credentials
+/// in the URL (they would end up in `.git/config`, argv and logs; GitHub access
+/// goes through the OS vault instead).
 pub fn validate_remote_url(url: &str) -> Result<()> {
+    check_transport(url)?;
+    if url_has_credentials(url.trim()) {
+        return Err(Error::Invalid(
+            "a URL contém usuário ou token; use a URL sem credenciais e conecte o GitHub em Ajustes (o token fica no cofre do sistema)".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn check_transport(url: &str) -> Result<()> {
     let u = url.trim();
     let lower = u.to_ascii_lowercase();
     if u.is_empty() || u.starts_with('-') || u.chars().any(|c| c.is_control()) {
@@ -131,6 +162,20 @@ pub fn validate_remote_url(url: &str) -> Result<()> {
             return Err(Error::Invalid("transporte Git não permitido".into()));
         }
     Ok(())
+}
+
+/// `scheme://userinfo@host/...` where the userinfo can carry a secret: any
+/// userinfo for HTTP(S)/FTP (a token alone is a credential), a password for
+/// SSH (`ssh://git@host` is just the login name). scp-like `git@host:path`
+/// cannot carry a password and is accepted.
+fn url_has_credentials(url: &str) -> bool {
+    let Some((scheme, rest)) = url.split_once("://") else { return false };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let Some((userinfo, _)) = authority.rsplit_once('@') else { return false };
+    match scheme.to_ascii_lowercase().as_str() {
+        "ssh" | "git+ssh" | "ssh+git" => userinfo.contains(':'),
+        _ => true,
+    }
 }
 
 #[cfg(test)]
@@ -145,5 +190,22 @@ mod tests {
         assert!(validate_remote_url("ext::sh -c touch% /tmp/pwned").is_err());
         assert!(validate_remote_url("--upload-pack=evil").is_err());
         assert!(validate_remote_url("fd::3").is_err());
+    }
+
+    #[test]
+    fn audit3_finding2_rejects_credentials_in_urls() {
+        for bad in [
+            "https://user:ghp_secret@github.com/a/b.git",
+            "https://ghp_secret@github.com/a/b.git",
+            "HTTP://u:p@example.com/r",
+            "ssh://git:hunter2@example.com/r.git",
+        ] {
+            let e = validate_remote_url(bad).unwrap_err().to_string();
+            assert!(e.contains("credenciais") || e.contains("token"), "{bad}: {e}");
+            assert!(!e.contains("secret") && !e.contains("hunter2"), "a mensagem não pode repetir o segredo: {e}");
+        }
+        for ok in ["ssh://git@github.com/a/b.git", "git@github.com:a/b.git", "https://github.com/a/b@v1", "file:///tmp/r.git"] {
+            assert!(validate_remote_url(ok).is_ok(), "{ok}");
+        }
     }
 }

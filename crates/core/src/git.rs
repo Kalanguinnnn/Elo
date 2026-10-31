@@ -5,6 +5,12 @@
 //! interpolation), scrubs inherited `GIT_*` variables that could redirect the
 //! repository, forces `LC_ALL=C` so stderr can be classified, and disables
 //! interactive prompts.
+//!
+//! A project's own `.git/config` is not trusted (anyone able to write it could
+//! otherwise run programs as the Agent): every call disables `core.fsmonitor`
+//! and hooks and allows only the file/http/https/ssh transports, and commands
+//! that can start configured programs first check the repository-scoped config
+//! ([`Git::check_repo_config`]).
 
 use crate::error::{Error, Result};
 use std::collections::HashMap;
@@ -12,6 +18,7 @@ use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 /// Variables that would make git operate on a different repository/index than
@@ -27,6 +34,22 @@ const SCRUBBED_ENV: &[&str] = &[
     "GIT_PREFIX",
     "GIT_CEILING_DIRECTORIES",
 ];
+
+/// Transports Git may use (`GIT_ALLOW_PROTOCOL` overrides `protocol.*.allow`).
+/// Excludes `ext::`/`fd::` and other remote helpers, even when a repository
+/// rewrites a URL to them with `url.*.insteadOf`, and `git://`, whose
+/// `core.gitProxy` would run a command.
+pub const ALLOWED_PROTOCOLS: &str = "file:http:https:ssh";
+
+/// Value for `core.hooksPath` that can never hold a hook: our own executable is
+/// a regular file, so `<it>/<hook>` never exists. Git therefore runs no hook
+/// (`reference-transaction`, `post-checkout`, ...) from the project.
+fn no_hooks_path() -> Result<&'static Path> {
+    static EXE: OnceLock<Option<PathBuf>> = OnceLock::new();
+    EXE.get_or_init(|| std::env::current_exe().ok().filter(|p| p.is_file()))
+        .as_deref()
+        .ok_or_else(|| Error::Other("não foi possível desativar hooks do Git (executável atual desconhecido)".into()))
+}
 
 pub fn git_executable() -> OsString {
     std::env::var_os("CONTINUITY_GIT").unwrap_or_else(|| OsString::from("git"))
@@ -114,8 +137,13 @@ fn run_raw(cwd: &Path, args: &[&OsStr], opts: RunOpts) -> Result<Output> {
         .env("LC_ALL", "C")
         .env("LANGUAGE", "C")
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GCM_INTERACTIVE", "never");
+        .env("GCM_INTERACTIVE", "never")
+        .env("GIT_ALLOW_PROTOCOL", ALLOWED_PROTOCOLS);
+    let mut hooks = OsString::from("core.hooksPath=");
+    hooks.push(no_hooks_path()?);
     cmd.arg("-c").arg("core.quotepath=off");
+    cmd.arg("-c").arg("core.fsmonitor=false");
+    cmd.arg("-c").arg(hooks);
     for (k, v) in &opts.config {
         cmd.arg("-c").arg(format!("{k}={v}"));
     }
@@ -186,9 +214,9 @@ fn run_raw(cwd: &Path, args: &[&OsStr], opts: RunOpts) -> Result<Output> {
     let code = status.code().unwrap_or(-1);
     if code != 0 && !opts.ok_codes.contains(&code) {
         return Err(Error::Git {
-            args: label,
+            args: crate::util::redact_url_credentials(&label),
             code: status.code(),
-            stderr: stderr.trim().to_string(),
+            stderr: crate::util::redact_url_credentials(stderr.trim()),
         });
     }
     Ok(Output { code, stdout, stderr })
@@ -234,7 +262,27 @@ impl Git {
     }
 
     pub fn run(&self, args: &[&OsStr], opts: RunOpts) -> Result<Output> {
+        if may_run_repo_programs(args) {
+            self.check_repo_config()?;
+        }
         run_raw(&self.workdir, args, opts)
+    }
+
+    /// Refuse when the repository's own config would make Git start a program
+    /// ([`repo_hazard`]). The same keys in the user's global/system config are
+    /// theirs and stay honored (e.g. Git LFS filters).
+    pub fn check_repo_config(&self) -> Result<()> {
+        let out = run_raw(
+            &self.workdir,
+            os_args!["config", "--show-scope", "-z", "--get-regexp", r"^(filter|credential|remote|core)\."],
+            RunOpts::default().ok_code(1),
+        )?;
+        let bad = repo_hazards(&out.stdout);
+        if bad.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::UnsafeRepoConfig(bad.join(", ")))
+        }
     }
 
     pub fn run_text(&self, args: &[&OsStr]) -> Result<String> {
@@ -359,6 +407,7 @@ impl Git {
             input.push_str(p);
             input.push('\n');
         }
+        self.check_repo_config()?;
         let gd = self.git_dir.clone();
         let out = run_raw(
             root,
@@ -398,6 +447,63 @@ impl Git {
         let out = self.run(os_args!["diff-tree", "-r", "-z", "-M", "--no-commit-id", a, b], RunOpts::default())?;
         Ok(parse_raw_diff(&out.stdout))
     }
+}
+
+/// Subcommands (as Elo calls them) that never start a program from the
+/// repository's config. Anything else is checked first, so a new call site is
+/// guarded by default.
+fn may_run_repo_programs(args: &[&OsStr]) -> bool {
+    const SAFE: &[&str] = &[
+        "rev-parse", "symbolic-ref", "update-ref", "for-each-ref", "ls-tree", "diff-tree", "mktree", "write-tree",
+        "commit-tree", "merge-base", "rev-list", "config", "remote", "init",
+    ];
+    let Some(sub) = args.first().and_then(|a| a.to_str()) else { return true };
+    if sub == "cat-file" {
+        return args.iter().any(|a| *a == "--filters" || *a == "--textconv");
+    }
+    !SAFE.contains(&sub)
+}
+
+/// Keys that make the Git commands Elo runs start a program: filter drivers
+/// (status, add, hash-object, cat-file --filters), credential helpers and
+/// askpass (network), upload/receive-pack and remote helpers (fetch/push), and
+/// the alternates command (fetch). `core.fsmonitor`, hooks, `protocol.*` and
+/// `core.sshCommand` need no check: they are overridden on every call.
+fn repo_hazard(key: &str, value: &str) -> bool {
+    if value.trim().is_empty() {
+        return false; // e.g. `credential.helper=` resets the list
+    }
+    let k = key.to_ascii_lowercase();
+    let ends = |s: &[&str]| s.iter().any(|x| k.ends_with(x));
+    if k.starts_with("filter.") {
+        ends(&[".clean", ".smudge", ".process"])
+    } else if k.starts_with("credential.") {
+        k.ends_with(".helper")
+    } else if k.starts_with("remote.") {
+        ends(&[".uploadpack", ".receivepack", ".vcs"])
+    } else {
+        k == "core.askpass" || k == "core.alternaterefscommand"
+    }
+}
+
+/// Parse `git config --show-scope -z --get-regexp` (`scope\0key\nvalue\0`...)
+/// and return the hazardous keys that come from the repository itself.
+fn repo_hazards(raw: &[u8]) -> Vec<String> {
+    let mut bad = Vec::new();
+    let mut fields = raw.split(|b| *b == 0);
+    while let (Some(scope), Some(kv)) = (fields.next(), fields.next()) {
+        let scope = String::from_utf8_lossy(scope);
+        // system/global are the user's own; "command" is our own `-c`.
+        if matches!(scope.as_ref(), "system" | "global" | "command") {
+            continue;
+        }
+        let kv = String::from_utf8_lossy(kv);
+        let (key, value) = kv.split_once('\n').unwrap_or((&kv, ""));
+        if repo_hazard(key, value) && !bad.iter().any(|b| b == key) {
+            bad.push(key.to_string());
+        }
+    }
+    bad
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -507,6 +613,26 @@ mod tests {
         assert_eq!(v[2].status, "R");
         assert_eq!(v[2].path, "new.txt");
         assert_eq!(v[2].old_path.as_deref(), Some("old.txt"));
+    }
+
+    #[test]
+    fn repo_hazards_ignore_user_scopes_and_harmless_keys() {
+        let raw = b"system\0filter.lfs.clean\ngit-lfs clean -- %f\0global\0credential.helper\nmanager\0\
+local\0filter.evil.smudge\nsh -c x\0local\0remote.origin.url\nhttps://h/r\0local\0credential.helper\n\0\
+worktree\0remote.origin.uploadpack\nevil\0local\0core.askPass\n/x\0local\0filter.evil.required\ntrue\0";
+        assert_eq!(repo_hazards(raw), vec!["filter.evil.smudge", "remote.origin.uploadpack", "core.askPass"]);
+        assert!(repo_hazards(b"").is_empty());
+    }
+
+    #[test]
+    fn only_known_plumbing_skips_the_config_check() {
+        assert!(!may_run_repo_programs(os_args!["rev-parse", "HEAD"]));
+        assert!(!may_run_repo_programs(os_args!["cat-file", "blob", "x"]));
+        let guarded: [&[&OsStr]; 5] =
+            [os_args!["status"], os_args!["add", "-A"], os_args!["fetch", "origin"], os_args!["cat-file", "--filters", "x"], os_args!["new-cmd"]];
+        for a in guarded {
+            assert!(may_run_repo_programs(a));
+        }
     }
 
     #[test]

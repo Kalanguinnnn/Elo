@@ -107,6 +107,9 @@ pub struct ProjectStatus {
     pub queue_error: Option<String>,
     pub queue_failure_kind: Option<String>,
     pub git_busy: Option<String>,
+    /// Why Elo refuses to run Git in this project (its own config would run
+    /// external programs); the user must fix `.git/config`.
+    pub unsafe_config: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -227,7 +230,9 @@ fn guard(m: &Mutex<()>) -> MutexGuard<'_, ()> {
 
 impl Engine {
     pub fn open(cfg: EngineConfig) -> Result<Engine> {
+        // Private profile for every entry point (Agent, `continuity --direct`, tests).
         std::fs::create_dir_all(&cfg.data_dir)?;
+        crate::ipc::restrict_dir(&cfg.data_dir);
         let db = Db::open(&cfg.data_dir.join("continuity.db"))?;
         let dev = device::load_or_create(&db)?;
         for op in db.mark_interrupted_ops()? {
@@ -348,7 +353,11 @@ impl Engine {
             r.workdir = Some(git.workdir.display().to_string());
             r.branch = git.head_branch()?.map(|b| checkpoint::short_branch(&b).to_string());
             r.has_commits = git.head_commit()?.is_some();
-            r.remotes = git.remotes()?;
+            r.remotes = git
+                .remotes()?
+                .into_iter()
+                .map(|(n, u)| (n, crate::util::redact_url_credentials(&u)))
+                .collect();
             r.already_added = self.db().project_by_path(&git.workdir.display().to_string())?.map(|p| p.id);
         }
         Ok(r)
@@ -376,6 +385,8 @@ impl Engine {
         if let Some(p) = self.db().project_by_path(&workdir)? {
             return Ok(p);
         }
+        // Refuse up front instead of failing on every background operation.
+        git.check_repo_config()?;
         if let Some(url) = opts.remote_url.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
             self.set_remote_url(&git, "origin", url)?;
         }
@@ -427,7 +438,8 @@ impl Engine {
         let p = self.db().project(project_id)?;
         let git = Git::open(Path::new(&p.path))?;
         self.set_remote_url(&git, &p.remote, url)?;
-        self.log(Some(project_id), "info", "remote_set", &format!("Remoto {} configurado: {url}", p.remote));
+        let shown = crate::util::redact_url_credentials(url);
+        self.log(Some(project_id), "info", "remote_set", &format!("Remoto {} configurado: {shown}", p.remote));
         Ok(p)
     }
 
@@ -502,6 +514,7 @@ impl Engine {
             queue_error: None,
             queue_failure_kind: None,
             git_busy: None,
+            unsafe_config: None,
         };
         {
             let db = self.db();
@@ -519,8 +532,13 @@ impl Engine {
             st.available = true;
             st.branch = git.head_branch()?.map(|b| checkpoint::short_branch(&b).to_string());
             st.head = git.head_commit()?;
-            st.remote_url = git.config_get(&format!("remote.{}.url", p.remote))?;
+            st.remote_url = git
+                .config_get(&format!("remote.{}.url", p.remote))?
+                .map(|u| crate::util::redact_url_credentials(&u));
             st.git_busy = snapshot::git_busy(&git);
+            if let Err(e) = git.check_repo_config() {
+                st.unsafe_config = Some(e.to_string());
+            }
             if let Ok(o) = git.run(os_args!["status", "--porcelain=v1", "-z", "--untracked-files=normal"], RunOpts::default()) {
                 st.uncommitted_changes = Some(o.stdout.split(|b| *b == 0).filter(|r| r.len() > 3).count());
             }

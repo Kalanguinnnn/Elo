@@ -360,6 +360,15 @@ impl Db {
     pub fn open(path: &Path) -> Result<Db> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
+            crate::ipc::restrict_dir(dir);
+        }
+        // Create the file owner-only before SQLite does (its -wal/-shm files
+        // copy the database's mode); an existing file is tightened too.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(path)?;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         }
         let conn = Connection::open(path)?;
         Self::init(conn)

@@ -38,6 +38,10 @@ pub enum Error {
     /// the Agent; nothing was sent to it.
     #[error("canal do Agent não autenticado: {0}")]
     Impostor(String),
+    /// The project's own Git config (`.git/config`, `config.worktree` or a file
+    /// they include) asks Git to run programs. Elo refuses instead of running them.
+    #[error("a configuração Git deste projeto executa comandos externos ({0}); o Elo não opera nele até você remover essas chaves do .git/config ou movê-las para a sua configuração global (git config --global), se confiar nelas")]
+    UnsafeRepoConfig(String),
     #[error("{0}")]
     Other(String),
 }
@@ -80,6 +84,7 @@ impl Error {
             Error::NotFound(_) => "not_found",
             Error::Invalid(_) => "invalid",
             Error::Impostor(_) => "impostor",
+            Error::UnsafeRepoConfig(_) => "unsafe_repo_config",
             Error::Conflict(_) => "conflict",
             Error::NeedsConfirmation(_) => "needs_confirmation",
             Error::Db(_) => "db",

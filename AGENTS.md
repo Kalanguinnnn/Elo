@@ -22,7 +22,10 @@
    conflitos não resolvidos, e reverificação do hash de cada alvo (`verify_expectations`).
 4. Todo caminho vindo de árvores Git passa por `paths::validate_rel_path` e
    `check_no_symlink_ancestors`.
-5. Git é chamado apenas via `git::Git::run` (vetor de argumentos, sem shell).
+5. Git é chamado apenas via `git::Git::run` (vetor de argumentos, sem shell). A configuração do
+   repositório não é confiável: não remova as sobreposições de `run_raw` (fsmonitor, hooks,
+   `GIT_ALLOW_PROTOCOL`) e, ao usar um subcomando novo, só o inclua em `SAFE` de
+   `may_run_repo_programs` se ele nunca puder iniciar um programa configurado.
 6. Tokens só existem no cofre do SO e no pipe do `GIT_ASKPASS`; nunca em logs, argv ou URLs.
 7. Não segure `Engine::db()` enquanto chama outro método que também o bloqueia. Associe o
    resultado a uma variável antes de usar `match` ou `for` (o guard vive pelo bloco inteiro).
