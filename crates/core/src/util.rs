@@ -64,6 +64,31 @@ pub fn redact_url_credentials(text: &str) -> String {
     out
 }
 
+/// Whether the process `pid` is still running. Used to wait until the Agent
+/// has really exited before an update replaces its executable.
+#[cfg(windows)]
+pub fn process_alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    // SAFETY: plain OpenProcess/GetExitCodeProcess; a null handle is handled
+    // and the handle is closed before returning.
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(h, &mut code) != 0;
+        CloseHandle(h);
+        ok && code == STILL_ACTIVE as u32
+    }
+}
+
+#[cfg(not(windows))]
+pub fn process_alive(pid: u32) -> bool {
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,5 +105,15 @@ mod tests {
         assert_eq!(redact_url_credentials("git@github.com:a/b.git"), "git@github.com:a/b.git");
         assert_eq!(redact_url_credentials("a https://x:y@h b http://k@h2/p"), "a https://***@h b http://***@h2/p");
         assert_eq!(redact_url_credentials("sem url"), "sem url");
+    }
+
+    #[test]
+    fn process_alive_tracks_a_child_until_it_exits() {
+        assert!(process_alive(std::process::id()));
+        let mut child = std::process::Command::new("git").arg("--version").stdout(std::process::Stdio::null()).spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        drop(child);
+        assert!(!process_alive(pid));
     }
 }

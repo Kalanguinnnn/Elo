@@ -3,6 +3,8 @@ import { call, type Settings } from "../api";
 import { dateTime } from "../format";
 import { Notice, Toggle, useAction, useLoad } from "../ui";
 import { useMotion } from "../motion";
+import { useUpdates } from "../updates";
+import { getVersion } from "@tauri-apps/api/app";
 import GitHubConnect from "./GitHubConnect";
 
 interface AgentStatus {
@@ -22,6 +24,8 @@ export default function SettingsPage() {
   const [draft, setDraft] = useState<Settings | null>(null);
   const act = useAction();
   const motion = useMotion();
+  const upd = useUpdates();
+  const version = useLoad(() => getVersion(), []);
   useEffect(() => { if (s.data) setDraft(s.data); }, [s.data]);
   if (!draft) return <div className="page"><Notice error={s.error} /></div>;
   const num = (k: keyof Settings, mult = 1) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft({ ...draft, [k]: Number(e.target.value) * mult });
@@ -69,6 +73,34 @@ export default function SettingsPage() {
             label="Modo desempenho"
             hint="Desliga animações e transições da janela. Aplicado na hora, só neste computador."
           />
+        </div>
+      </section>
+      <section>
+        <h2>Atualizações</h2>
+        <div className="card stack">
+          <div className="row between wrap">
+            <div>
+              <strong>Versão {version.data ?? "—"}</strong>
+              <div className="muted small">
+                {upd.phase === "checking" && "Procurando…"}
+                {upd.phase === "none" && "Você está na versão mais recente."}
+                {upd.phase === "available" && `Elo ${upd.version} disponível.`}
+                {upd.phase === "downloading" && `Baixando Elo ${upd.version}${upd.progress != null ? ` (${Math.round(upd.progress * 100)}%)` : "…"}`}
+                {upd.phase === "installing" && "Instalando; o Elo vai reiniciar."}
+                {upd.phase === "idle" && "As atualizações vêm dos releases publicados no GitHub e têm a assinatura conferida antes da instalação."}
+              </div>
+            </div>
+            {upd.phase === "available" ? (
+              <button className="primary" onClick={upd.install}>Atualizar agora</button>
+            ) : (
+              <button onClick={() => upd.check(true)} disabled={upd.phase === "checking" || upd.phase === "downloading" || upd.phase === "installing"}>
+                Procurar atualizações
+              </button>
+            )}
+          </div>
+          {upd.phase === "available" && upd.notes && <pre className="code release-notes">{upd.notes}</pre>}
+          <Notice error={upd.phase === "error" ? upd.error : null} />
+          <Toggle checked={upd.auto} onChange={upd.setAuto} label="Procurar atualizações automaticamente" hint="Ao abrir o Elo e a cada 6 horas. A instalação sempre espera você clicar em Atualizar." />
         </div>
       </section>
       <section>

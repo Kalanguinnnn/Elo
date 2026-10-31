@@ -1,6 +1,6 @@
 # Estado da implementação
 
-Atualizado em 2026-10-31 (versão 0.1.1). Ambiente de validação: Windows 11 Pro, Rust 1.99.1, Node 24.18,
+Atualizado em 2026-10-31 (versão 0.1.2). Ambiente de validação: Windows 11 Pro, Rust 1.99.1, Node 24.18,
 Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 
 ## Milestones
@@ -46,6 +46,7 @@ Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 | Interface desktop (10 telas) | ✅ | tsc estrito, build do Vite, testes da lógica de status (`status.test.ts`, `format.test.ts`, `motion.test.ts`) e revisão visual das telas no app em 2026-10-31. |
 | Animações e modo desempenho | ✅ | Transições de página, entrada escalonada de listas e feedback de hover/clique só com `opacity`/`transform`; **Ajustes → Aparência → Modo desempenho** desliga tudo (`data-motion="off"`), salvo por computador e aplicado antes da primeira pintura. Testes `motion.test.ts`; verificado no app (transição capturada a 40 ms) e no webview (`animationName: none` e transições 0 s com o modo ligado, inclusive após recarregar). |
 | Terceira auditoria de segurança | ✅ | 4 achados corrigidos (configuração Git do projeto não confiável, credenciais em URL, permissões do perfil no `--direct`, actions fixadas por SHA). Ver [AUDITORIA_SEGURANCA_3.md](../AUDITORIA_SEGURANCA_3.md#status-das-correções). |
+| Atualização automática | 🟡 | A partir da 0.1.2: o app consulta o `latest.json` do último release **publicado** no GitHub, ao abrir e a cada 6 h (desligável em Ajustes). Baixa, confere a assinatura (chave pública no app; a privada fica nos Secrets do GitHub e em `%USERPROFILE%\.tauri`), para o Agent e instala. Windows (.exe) e AppImage; .deb/.rpm atualizam pelo gerenciador de pacotes. Build assinado verificado localmente; a atualização de uma versão para outra só pode ser testada quando houver duas versões publicadas. |
 | Instaladores Windows (NSIS e MSI) | ✅ | Gerados localmente em `target/release/bundle` e pelo workflow de release. A instalação em máquina limpa não foi testada; as builds não são assinadas (por requisito). |
 | Pacotes Linux (deb, rpm, AppImage) | 🟡 | Gerados pelo workflow de release (tag `v0.1.0`, release em rascunho). Instalação em uma distribuição real não testada. |
 | CI (Windows/Linux) e release em rascunho | ✅ | CI verde a cada push em `main`; actions fixadas por SHA; release em rascunho, nunca publicado automaticamente. |
@@ -55,7 +56,7 @@ Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 
 - `cargo test`: **71 passaram no Windows** (core: 35 unitários, 6 snapshot, 26 sync, 3 política de workflows; agent: 1) e 72 no Linux (+1 só Unix), 0 falharam.
 - `cargo clippy --workspace --all-targets -- -D warnings`: limpo (inclui o crate Tauri).
-- `npm test` (vitest): 14 passaram; `npm run build`: OK.
+- `npm test` (vitest): 16 passaram; `npm run build`: OK.
 - CI no GitHub (Windows e Linux): verde; no Linux roda também o teste de permissões do perfil (só Unix).
 - Demonstração ao vivo: dois Agents (`CONTINUITY_DATA_DIR` isolados) + CLI, fluxo A→B (com staging) → `sync-and-quit` → A.
 

@@ -44,3 +44,15 @@ No Windows são necessários o Visual Studio Build Tools (C++) e o WebView2.
 Em **Configurações → Agent em segundo plano**, ative "Iniciar o Agent ao entrar no
 sistema". No Windows isso cria a chave `HKCU\…\Run\ContinuityAgent`; no Linux,
 `~/.config/autostart/continuity-agent.desktop`.
+
+## Atualizações
+
+A partir da versão 0.1.2, o Elo procura atualizações sozinho, ao abrir e a cada 6 horas. Quando há uma
+versão nova publicada, aparece **"Elo X disponível — Atualizar agora"** na barra lateral e em
+**Ajustes → Atualizações**. O pacote só é instalado se a assinatura conferir com a chave embutida no
+app; antes de instalar, o Agent é encerrado e a fila de envio continua na versão nova.
+
+- Windows: funciona com o instalador `.exe` (NSIS).
+- Linux: funciona com o AppImage. Quem instalou o `.deb` ou o `.rpm` atualiza pelo gerenciador de pacotes.
+- Só releases **publicados** são oferecidos; rascunhos não aparecem.
+- Para desligar: Ajustes → Atualizações → "Procurar atualizações automaticamente".

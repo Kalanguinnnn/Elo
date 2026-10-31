@@ -54,11 +54,19 @@ jobs:
       - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the update packages; the app only installs updates whose
+          # signature matches the public key in tauri.conf.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
           releaseName: "Elo ${{ github.ref_name }} (beta)"
           releaseBody: "Build beta não assinada. Veja docs/INSTALL.md."
           releaseDraft: true
-          prerelease: true
+          # Not a prerelease: the updater follows GitHub's "latest" release,
+          # which ignores prereleases. Still a draft until a maintainer publishes.
+          prerelease: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
           args: --bundles ${{ matrix.bundles }}

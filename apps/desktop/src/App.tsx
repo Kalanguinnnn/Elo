@@ -14,6 +14,7 @@ import SettingsPage from "./pages/Settings";
 import About from "./pages/About";
 import { Dot, EloLogo } from "./brand";
 import { health } from "./status";
+import { useAutoUpdateCheck, useUpdates } from "./updates";
 import { IconDevices, IconFolder, IconInfo, IconMerge, IconPulse, IconSliders } from "./icons";
 
 export type Route =
@@ -48,6 +49,8 @@ export default function App() {
   const [route, setRoute] = useState<Route>({ page: "projects" });
   const projects = useLoad(() => call<ProjectStatus[]>("projects.list"), [], 8000);
   const quit = useAction();
+  const upd = useUpdates();
+  useAutoUpdateCheck();
   const nav: Nav = (r) => setRoute(r);
 
   const conflicts = (projects.data ?? []).reduce((n, p) => n + p.open_conflicts, 0);
@@ -128,6 +131,19 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
+          {(upd.phase === "available" || upd.phase === "downloading" || upd.phase === "installing") && (
+            <div className="update-card">
+              <strong>Elo {upd.version} disponível</strong>
+              {upd.phase === "available" && <button className="primary block" onClick={upd.install}>Atualizar agora</button>}
+              {upd.phase === "downloading" && (
+                <>
+                  <span className="muted small">Baixando{upd.progress != null ? ` ${Math.round(upd.progress * 100)}%` : "…"}</span>
+                  <div className="progress"><div style={{ width: `${Math.round((upd.progress ?? 0) * 100)}%` }} /></div>
+                </>
+              )}
+              {upd.phase === "installing" && <span className="muted small">Instalando; o Elo vai reiniciar.</span>}
+            </div>
+          )}
           <div className="health">
             <Dot tone={h.tone} />
             {h.text}

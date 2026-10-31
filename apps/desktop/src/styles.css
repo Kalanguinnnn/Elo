@@ -104,6 +104,11 @@ h2 { font-size: 13px; margin: 28px 0 10px; font-weight: 600; color: var(--muted)
 .sidebar-foot { display: flex; flex-direction: column; gap: 10px; padding: 10px 4px 0; border-top: 1px solid var(--hairline); }
 .health { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); padding: 2px 6px; }
 .content { flex: 1; overflow: auto; }
+.update-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r); background: var(--add); border: 1px solid var(--hairline); animation: notice-in 0.25s var(--ease-out, ease-out) backwards; }
+.update-card strong { font-size: 12.5px; }
+.progress { height: 4px; border-radius: 2px; background: var(--hairline-strong); overflow: hidden; }
+.progress > div { height: 100%; background: var(--sage); transition: width 0.2s; }
+pre.release-notes { max-height: 180px; background: var(--surface-2); border-radius: var(--r); }
 
 .logo { display: inline-flex; align-items: center; gap: 0.45em; color: var(--fg); }
 .wordmark { font-weight: 620; letter-spacing: -0.045em; line-height: 1; }

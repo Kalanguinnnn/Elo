@@ -4,7 +4,12 @@
 use continuity_core::ipc::{Client, Endpoint};
 use serde_json::Value;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+
+/// Set while an update is being installed: the Agent was stopped so the
+/// installer can replace its executable, and must not be started again.
+static UPDATING: AtomicBool = AtomicBool::new(false);
 
 fn agent_exe() -> Option<PathBuf> {
     let name = if cfg!(windows) { "continuity-agent.exe" } else { "continuity-agent" };
@@ -67,6 +72,9 @@ fn ensure_agent() -> Result<Client, String> {
 
 #[tauri::command]
 async fn agent_call(method: String, params: Value) -> Result<Value, String> {
+    if UPDATING.load(Ordering::SeqCst) {
+        return Err("atualização do Elo em andamento".into());
+    }
     tauri::async_runtime::spawn_blocking(move || ensure_agent()?.call(&method, params).map_err(|e| e.to_string()))
         .await
         .map_err(|e| e.to_string())?
@@ -85,12 +93,52 @@ async fn sync_and_quit(app: tauri::AppHandle) -> Result<Value, String> {
     Ok(rep)
 }
 
+/// Stop the Agent before an update replaces its executable, and keep it
+/// stopped. Pending work stays in the persistent queue and the new version's
+/// Agent resumes it. Returns once the process has actually exited.
+#[tauri::command]
+async fn stop_agent_for_update() -> Result<(), String> {
+    UPDATING.store(true, Ordering::SeqCst);
+    let res = tauri::async_runtime::spawn_blocking(|| {
+        let c = match probe() {
+            Ok(c) => c,
+            Err(None) => return Ok(()),
+            Err(Some(msg)) => return Err(msg),
+        };
+        let pid = c.call("agent.status", Value::Null).ok().and_then(|v| v["pid"].as_u64()).map(|p| p as u32);
+        c.call("agent.stop", Value::Null).map_err(|e| e.to_string())?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline {
+            let exited = pid.is_none_or(|p| !continuity_core::util::process_alive(p));
+            if exited && probe().is_err() {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        Err("o Agent não encerrou a tempo; feche o Elo e instale a nova versão manualmente".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    if res.is_err() {
+        UPDATING.store(false, Ordering::SeqCst);
+    }
+    res
+}
+
+/// The update failed after the Agent was stopped: allow starting it again.
+#[tauri::command]
+fn resume_after_failed_update() {
+    UPDATING.store(false, Ordering::SeqCst);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![agent_call, sync_and_quit])
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .invoke_handler(tauri::generate_handler![agent_call, sync_and_quit, stop_agent_for_update, resume_after_failed_update])
         .run(tauri::generate_context!())
         .expect("erro ao executar o aplicativo");
 }
