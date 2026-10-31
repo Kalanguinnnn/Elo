@@ -46,6 +46,11 @@ pub struct Repo {
     pub ssh_url: String,
     pub html_url: String,
     pub default_branch: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// ISO 8601, as GitHub sends it; the list is already sorted by it.
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 pub fn user(token: &str) -> Result<GithubUser> {
@@ -160,4 +165,23 @@ pub fn device_poll(client_id: &str, device_code: &str) -> Result<DevicePoll> {
         "slow_down" => DevicePoll::SlowDown,
         other => DevicePoll::Failed { error: other.to_string() },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_list_entries_parse_with_and_without_optional_fields() {
+        let v: Vec<Repo> = serde_json::from_str(
+            r#"[{"full_name":"a/elo","private":true,"clone_url":"https://github.com/a/elo.git","ssh_url":"git@github.com:a/elo.git",
+                 "html_url":"https://github.com/a/elo","default_branch":"main","description":"Sincroniza","updated_at":"2026-10-31T12:00:00Z","id":1},
+                {"full_name":"a/x","private":false,"clone_url":"https://github.com/a/x.git","ssh_url":"git@github.com:a/x.git",
+                 "html_url":"https://github.com/a/x","default_branch":null,"description":null}]"#,
+        )
+        .unwrap();
+        assert_eq!(v[0].description.as_deref(), Some("Sincroniza"));
+        assert_eq!(v[0].updated_at.as_deref(), Some("2026-10-31T12:00:00Z"));
+        assert!(v[1].description.is_none() && v[1].updated_at.is_none());
+    }
 }

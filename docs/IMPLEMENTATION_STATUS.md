@@ -41,7 +41,7 @@ Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 | Identidade persistente de dispositivo e renomeação | ✅ | `migrates_and_persists`, demonstração. |
 | SQLite com migrações | ✅ | `db.rs` testes. |
 | Token no cofre do SO e askpass restrito ao github.com | ✅ | `askpass_only_answers_github`; em uso real: login do GitHub feito pelo app e checkpoints deste repositório enviados ao GitHub (`refs/continuity/checkpoints/*` no remoto). |
-| GitHub: validar token, listar e criar repositórios | 🟡 | Validação do token e conta conectada exercitadas em uso real; listar/criar repositório não foram exercitados contra a API real. |
+| GitHub: validar token, listar e criar repositórios | 🟡 | Validação do token e listagem exercitadas em uso real: ao clonar, a lista dos repositórios da conta (com busca, descrição, privado e data de atualização) é carregada sozinha e preenche a URL (`repos.test.ts`, `repo_list_entries_parse_*`). Criar repositório não foi exercitado contra a API real. |
 | Login GitHub pelo navegador (device flow) | ✅ | Usado em uso real (conta conectada em Ajustes). O client id do OAuth App é configurável. |
 | Interface desktop (10 telas) | ✅ | tsc estrito, build do Vite, testes da lógica de status (`status.test.ts`, `format.test.ts`, `motion.test.ts`) e revisão visual das telas no app em 2026-10-31. |
 | Animações e modo desempenho | ✅ | Transições de página, entrada escalonada de listas e feedback de hover/clique só com `opacity`/`transform`; **Ajustes → Aparência → Modo desempenho** desliga tudo (`data-motion="off"`), salvo por computador e aplicado antes da primeira pintura. Testes `motion.test.ts`; verificado no app (transição capturada a 40 ms) e no webview (`animationName: none` e transições 0 s com o modo ligado, inclusive após recarregar). |
@@ -55,7 +55,7 @@ Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 
 - `cargo test`: **71 passaram no Windows** (core: 35 unitários, 6 snapshot, 26 sync, 3 política de workflows; agent: 1) e 72 no Linux (+1 só Unix), 0 falharam.
 - `cargo clippy --workspace --all-targets -- -D warnings`: limpo (inclui o crate Tauri).
-- `npm test` (vitest): 12 passaram; `npm run build`: OK.
+- `npm test` (vitest): 14 passaram; `npm run build`: OK.
 - CI no GitHub (Windows e Linux): verde; no Linux roda também o teste de permissões do perfil (só Unix).
 - Demonstração ao vivo: dois Agents (`CONTINUITY_DATA_DIR` isolados) + CLI, fluxo A→B (com staging) → `sync-and-quit` → A.
 
