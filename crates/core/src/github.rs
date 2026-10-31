@@ -123,7 +123,9 @@ pub fn device_start(client_id: &str) -> Result<DeviceCode> {
     agent()
         .post("https://github.com/login/device/code")
         .set("Accept", "application/json")
-        .send_form(&[("client_id", client_id), ("scope", "repo")])
+        // `workflow`: GitHub refuses pushes that touch .github/workflows without it,
+        // and a checkpoint carries whatever the user edited there.
+        .send_form(&[("client_id", client_id), ("scope", "repo workflow")])
         .map_err(map_err)?
         .into_json()
         .map_err(|e| Error::Network(e.to_string()))

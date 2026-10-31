@@ -53,7 +53,7 @@ Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 
 ## Testes executados (última execução)
 
-- `cargo test`: **70 passaram no Windows** (core: 34 unitários, 6 snapshot, 26 sync, 3 política de workflows; agent: 1) e 71 no Linux (+1 só Unix), 0 falharam.
+- `cargo test`: **71 passaram no Windows** (core: 35 unitários, 6 snapshot, 26 sync, 3 política de workflows; agent: 1) e 72 no Linux (+1 só Unix), 0 falharam.
 - `cargo clippy --workspace --all-targets -- -D warnings`: limpo (inclui o crate Tauri).
 - `npm test` (vitest): 12 passaram; `npm run build`: OK.
 - CI no GitHub (Windows e Linux): verde; no Linux roda também o teste de permissões do perfil (só Unix).
@@ -65,6 +65,7 @@ Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 - Fixture de teste clonava com o `autocrlf` do sistema; os testes agora fixam a configuração e há um teste dedicado a EOL.
 - Revisão visual (2026-10-31): a tela Ajustes mostrava "Conectado" com um token do GitHub já revogado, e o push falhava só com a mensagem do Git. Agora `github.status` confere o token ao vivo (`token_valid`), Ajustes avisa para reconectar e a fila diz o que fazer (`rejected_github_login_names_the_fix`).
 - Um teste continha um token falso literal, e o próprio Elo, sincronizando este repositório, colocou o checkpoint em quarentena. O teste agora gera o valor em tempo de execução, como os demais.
+- Uso real (2026-10-31): o GitHub recusou um checkpoint que alterava `.github/workflows`, porque o login pedia só o escopo `repo`. O Elo mostrava apenas "failed to push some refs". Agora o login pede `repo workflow`, e o erro de push traz o motivo de cada ref recusada, com instrução para reconectar (`push_rejection_keeps_the_remote_reason`).
 - Leitura em lote com `cat-file --batch --filters` revertida: o Git informa o tamanho sem conversão de EOL, e o teste `eol_conversion_*` detectou a divergência.
 
 ## Limitações conhecidas

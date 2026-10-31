@@ -184,7 +184,7 @@ export default function GitHubConnect({ onChange }: { onChange?: () => void }) {
         <summary>Outras opções</summary>
         <div className="stack top">
           <label className="field">
-            <span>Token de acesso pessoal (escopo: repositórios)</span>
+            <span>Token de acesso pessoal (permissões: repositórios e workflows)</span>
             <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="github_pat_… ou ghp_…" autoComplete="off" />
           </label>
           <div className="row">

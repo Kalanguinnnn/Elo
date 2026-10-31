@@ -71,8 +71,7 @@ fn push_specs(git: &Git, remote: &str, specs: &[String], auth: &NetAuth) -> Resu
     for s in specs {
         args.push(OsStr::new(s));
     }
-    git.run(&args, auth.apply(RunOpts::default()))?;
-    Ok(())
+    run_push(git, &args, auth)
 }
 
 /// Delete our own checkpoint refs on the remote (retention). A deletion is not a
@@ -87,8 +86,44 @@ pub fn delete_remote_refs(git: &Git, remote: &str, refs: &[String], auth: &NetAu
     for s in &specs {
         args.push(OsStr::new(s));
     }
-    git.run(&args, auth.apply(RunOpts::default()))?;
-    Ok(())
+    run_push(git, &args, auth)
+}
+
+/// Run a push. When the remote refuses refs, Git's error line only says
+/// "failed to push some refs"; the reason per ref is in the `--porcelain`
+/// output on stdout, so it is attached to the error.
+fn run_push(git: &Git, args: &[&OsStr], auth: &NetAuth) -> Result<()> {
+    let out = git.run(args, auth.apply(RunOpts::default().ok_code(1)))?;
+    if out.code == 0 {
+        return Ok(());
+    }
+    Err(Error::Git {
+        args: "push".into(),
+        code: Some(out.code),
+        stderr: crate::util::redact_url_credentials(&push_failure_text(&String::from_utf8_lossy(&out.stdout), &out.stderr)),
+    })
+}
+
+fn push_failure_text(porcelain: &str, stderr: &str) -> String {
+    // Porcelain: `!<TAB><from>:<to><TAB>[remote rejected] (reason)`.
+    let reasons: Vec<&str> = porcelain
+        .lines()
+        .filter(|l| l.starts_with('!'))
+        .filter_map(|l| l.split('\t').nth(2))
+        .map(str::trim)
+        .collect();
+    let mut text = String::new();
+    if reasons.iter().any(|r| r.contains("`workflow` scope")) {
+        text.push_str(
+            "O GitHub exige a permissão \"workflow\" para enviar alterações em .github/workflows. Em Ajustes → GitHub, desconecte e entre de novo para concedê-la. ",
+        );
+    }
+    text.push_str(stderr.trim());
+    for r in reasons {
+        text.push('\n');
+        text.push_str(r);
+    }
+    text
 }
 
 /// Fetch every checkpoint ref from the remote into the same local namespace.
@@ -190,6 +225,18 @@ mod tests {
         assert!(validate_remote_url("ext::sh -c touch% /tmp/pwned").is_err());
         assert!(validate_remote_url("--upload-pack=evil").is_err());
         assert!(validate_remote_url("fd::3").is_err());
+    }
+
+    #[test]
+    fn push_rejection_keeps_the_remote_reason() {
+        let porcelain = "To https://github.com/a/b.git\n=\trefs/x:refs/x\t[up to date]\n!\trefs/y:refs/y\t[remote rejected] (refusing to allow an OAuth App to create or update workflow `.github/workflows/ci.yml` without `workflow` scope)\nDone\n";
+        let t = push_failure_text(porcelain, "error: failed to push some refs to 'https://github.com/a/b.git'\n");
+        assert!(t.starts_with("O GitHub exige a permissão \"workflow\""), "{t}");
+        assert!(t.contains("[remote rejected] (refusing to allow an OAuth App"), "{t}");
+        assert!(!t.contains("up to date"), "{t}");
+        assert_eq!(crate::error::classify_git_stderr(&t), crate::error::FailureKind::Rejected);
+        let plain = push_failure_text("!\trefs/z:refs/z\t[rejected] (fetch first)\n", "error: failed to push some refs");
+        assert_eq!(plain, "error: failed to push some refs\n[rejected] (fetch first)");
     }
 
     #[test]
