@@ -856,6 +856,14 @@ fn audit3_finding1_project_git_config_cannot_run_programs() {
         .add_project(&continuity_core::engine::AddProjectOptions { path: f.b.to_str().unwrap().into(), ..Default::default() })
         .unwrap_err();
     assert_eq!(err.code(), "unsafe_repo_config", "{err}");
+    // Git LFS installed only in the project gets a concrete way out.
+    git(&f.b, &["config", "--unset", "credential.helper"]);
+    git(&f.b, &["config", "filter.lfs.process", "git-lfs filter-process"]);
+    let err = eb
+        .add_project(&continuity_core::engine::AddProjectOptions { path: f.b.to_str().unwrap().into(), ..Default::default() })
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("git lfs install") && err.contains("--remove-section filter.lfs"), "{err}");
     git(&f.a, &["add", "-A"]);
     assert!(marker("filter").exists(), "controle: git comum executaria o filtro");
     git(&f.a, &["reset", "-q"]);
@@ -880,7 +888,9 @@ fn audit3_finding2_credentials_in_urls_are_refused_and_never_shown() {
     let f = fixture();
     let ea = engine(&f.data_a, true);
     let pa = add(&ea, &f.a);
-    let secret = "ghp_000000000000000000000000000000000000";
+    // Built at runtime: a literal token in the source would itself be flagged
+    // by the secret scanner when Elo syncs this repository.
+    let secret = &format!("ghp_{}", "0".repeat(36));
     let with_token = format!("https://user:{secret}@127.0.0.1:9/x.git");
 
     let err = ea.set_project_remote(&pa, &with_token).unwrap_err();
@@ -927,4 +937,38 @@ fn audit3_finding3_engine_creates_a_private_profile_on_every_entry_point() {
     let _e = engine(&data, true);
     assert_eq!(mode(&data), 0o700);
     assert_eq!(mode(&data.join("continuity.db")), 0o600);
+}
+
+#[test]
+fn many_files_binary_and_empty_are_applied_and_restored_intact() {
+    let f = fixture();
+    let ea = engine(&f.data_a, true);
+    let eb = engine(&f.data_b, true);
+    let pa = add(&ea, &f.a);
+    let pb = add(&eb, &f.b);
+    let n = 300;
+    for i in 0..n {
+        write(&f.a, &format!("gen/arquivo {i:03}.txt"), format!("linha {i}\n"));
+    }
+    let bin: Vec<u8> = (0..=255u8).chain([b'\n', 0, b'\n']).collect();
+    write(&f.a, "gen/bin.dat", &bin);
+    write(&f.a, "gen/empty.txt", "");
+    let c = ea.checkpoint_now(&pa, Trigger::Timer).unwrap().unwrap();
+    push(&ea, &pa);
+
+    let inc = receive(&eb, &pb);
+    let r = applied(eb.apply(&pb, &inc, &ApplyOptions::default(), false).unwrap());
+    assert_eq!(r.written.len(), n + 2);
+    for i in [0, 127, 128, 255, 256, n - 1] {
+        assert_eq!(read(&f.b, &format!("gen/arquivo {i:03}.txt")), format!("linha {i}\n"));
+    }
+    assert_eq!(std::fs::read(f.b.join("gen/bin.dat")).unwrap(), bin);
+    assert_eq!(read(&f.b, "gen/empty.txt"), "");
+
+    let target = f.data_a.join("restaurado");
+    let rep = ea.restore_to_dir(&pa, &c.id, target.to_str().unwrap()).unwrap();
+    assert!(rep.integrity_failures.is_empty() && rep.skipped.is_empty(), "{rep:?}");
+    assert_eq!(rep.verified, rep.files_written);
+    assert_eq!(std::fs::read(target.join("gen/bin.dat")).unwrap(), bin);
+    assert_eq!(read(&target, &format!("gen/arquivo {:03}.txt", n - 1)), format!("linha {}\n", n - 1));
 }

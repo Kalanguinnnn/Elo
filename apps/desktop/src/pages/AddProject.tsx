@@ -89,7 +89,7 @@ export default function AddProject({ onAdded, githubConnected }: { onAdded: (p: 
           </div>
           {info && (
             <div className="stack">
-              {info.already_added && <div className="notice">Este projeto já está no Continuity.</div>}
+              {info.already_added && <div className="notice">Este projeto já está no Elo.</div>}
               {info.is_repo ? (
                 <p className="muted">
                   Repositório Git em <code>{info.workdir}</code>, branch <strong>{info.branch ?? "(destacado)"}</strong>
@@ -100,7 +100,7 @@ export default function AddProject({ onAdded, githubConnected }: { onAdded: (p: 
                   checked={initGit}
                   onChange={setInitGit}
                   label="Inicializar um repositório Git nesta pasta"
-                  hint="A pasta não usa Git. O Continuity executará `git init` (branch main). Nenhum arquivo é alterado."
+                  hint="A pasta não usa Git. O Elo executará `git init` (branch main). Nenhum arquivo é alterado."
                 />
               )}
               <label className="field">

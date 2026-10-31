@@ -1,9 +1,11 @@
 [package]
 name = "continuity-core"
-description = "Continuity engine: isolated Git checkpoints, transport, protected apply, persistence"
+description = "Elo engine: isolated Git checkpoints, transport, protected apply, persistence"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 cap-std = "3"

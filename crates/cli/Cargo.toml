@@ -1,9 +1,11 @@
 [package]
 name = "continuity-cli"
-description = "Command-line client for the Continuity agent"
+description = "Command-line client for the Elo agent"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "continuity"

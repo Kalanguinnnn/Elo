@@ -1,9 +1,11 @@
 [package]
 name = "continuity-agent"
-description = "Continuity background agent: watcher, scheduler, sync queue and local IPC server"
+description = "Elo background agent: watcher, scheduler, sync queue and local IPC server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 continuity-core = { path = "../core" }

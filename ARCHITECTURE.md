@@ -1,6 +1,6 @@
-# Arquitetura — Continuity (nome provisório)
+# Arquitetura — Elo
 
-Continuity mantém o estado de trabalho de um projeto Git (inclusive alterações não
+O Elo mantém o estado de trabalho de um projeto Git (inclusive alterações não
 commitadas) sincronizado entre computadores **sem tocar no staging, no HEAD ou na
 branch** durante a captura, e **sem force push**.
 
@@ -100,7 +100,7 @@ conhecido em execução e nenhum evento de arquivo recente. Na dúvida → açã
 * Fetch: `git fetch --no-tags <remote> refs/continuity/checkpoints/*:refs/continuity/checkpoints/*`.
 * GitHub HTTPS: o token fica no cofre do sistema (`keyring`: Windows Credential
   Manager / Secret Service). O Git o obtém via `GIT_ASKPASS` apontando para o próprio
-  binário do Continuity — o token nunca vai para disco, argv ou URL.
+  binário do Elo — o token nunca vai para disco, argv ou URL.
 * Operações de rede têm timeout; falhas transitórias entram na **fila persistente**
   (SQLite) com backoff exponencial.
 

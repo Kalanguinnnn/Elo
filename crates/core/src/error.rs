@@ -40,7 +40,7 @@ pub enum Error {
     Impostor(String),
     /// The project's own Git config (`.git/config`, `config.worktree` or a file
     /// they include) asks Git to run programs. Elo refuses instead of running them.
-    #[error("a configuração Git deste projeto executa comandos externos ({0}); o Elo não opera nele até você remover essas chaves do .git/config ou movê-las para a sua configuração global (git config --global), se confiar nelas")]
+    #[error("a configuração Git deste projeto executa comandos externos: {0}")]
     UnsafeRepoConfig(String),
     #[error("{0}")]
     Other(String),

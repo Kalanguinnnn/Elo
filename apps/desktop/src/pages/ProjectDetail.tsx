@@ -298,7 +298,7 @@ export default function ProjectDetail({ nav, id, onChanged }: { nav: Nav; id: st
             <button onClick={() => act.run(() => call<{ pruned_local: number; queued_remote: number; kept: number }>("retention.run", { project_id: id }), (r) => `Retenção: ${r.pruned_local} removido(s), ${r.queued_remote} agendado(s) no remoto, ${r.kept} mantido(s).`)}>
               Aplicar retenção agora
             </button>
-            <button className="danger" onClick={remove}>Remover do Continuity</button>
+            <button className="danger" onClick={remove}>Remover do Elo</button>
           </div>
         </div>
       </section>

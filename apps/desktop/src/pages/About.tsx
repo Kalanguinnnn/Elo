@@ -21,7 +21,7 @@ export default function About() {
         <div className="row-item">Possíveis segredos são verificados antes de cada envio.</div>
         <div className="row-item">Nenhum conteúdo de projeto é enviado a servidores do Elo — eles não existem.</div>
       </div>
-      <p className="muted small" style={{ marginTop: 18 }}>Gratuito e de código aberto. Licença: MIT ou Apache-2.0 (a definir).</p>
+      <p className="muted small" style={{ marginTop: 18 }}>Gratuito e de código aberto. Licença MIT.</p>
     </div>
   );
 }

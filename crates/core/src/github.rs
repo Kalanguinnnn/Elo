@@ -9,7 +9,11 @@ const API: &str = "https://api.github.com";
 const UA: &str = concat!("continuity/", env!("CARGO_PKG_VERSION"));
 
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout(Duration::from_secs(30)).user_agent(UA).build()
+    agent_with(Duration::from_secs(30))
+}
+
+fn agent_with(timeout: Duration) -> ureq::Agent {
+    ureq::AgentBuilder::new().timeout(timeout).user_agent(UA).build()
 }
 
 fn map_err(e: ureq::Error) -> Error {
@@ -45,7 +49,22 @@ pub struct Repo {
 }
 
 pub fn user(token: &str) -> Result<GithubUser> {
-    agent()
+    user_with(agent(), token)
+}
+
+/// Whether GitHub still accepts `token`: `Some(false)` when it is rejected
+/// (revoked or expired), `None` when GitHub could not be reached. Short
+/// timeout: it runs whenever the UI shows the connection.
+pub fn token_accepted(token: &str) -> Option<bool> {
+    match user_with(agent_with(Duration::from_secs(8)), token) {
+        Ok(_) => Some(true),
+        Err(Error::Credentials(_)) => Some(false),
+        Err(_) => None,
+    }
+}
+
+fn user_with(agent: ureq::Agent, token: &str) -> Result<GithubUser> {
+    agent
         .get(&format!("{API}/user"))
         .set("Authorization", &format!("Bearer {token}"))
         .set("Accept", "application/vnd.github+json")

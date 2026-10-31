@@ -9,7 +9,8 @@ default-members = ["crates/core", "crates/agent", "crates/cli"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.89"
-# License (MIT or Apache-2.0) is still a pending product decision; see README.
+license = "MIT"
+repository = "https://github.com/Kalanguinnnn/Elo"
 
 [profile.release]
 lto = "thin"

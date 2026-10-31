@@ -1,6 +1,6 @@
 # Estado da implementação
 
-Atualizado em 2026-10-30. Ambiente de validação: Windows 11 Pro, Rust 1.99.1, Node 24.18,
+Atualizado em 2026-10-31 (versão 0.1.0). Ambiente de validação: Windows 11 Pro, Rust 1.99.1, Node 24.18,
 Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 
 ## Milestones
@@ -8,8 +8,8 @@ Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 | Milestone | Estado | Evidência |
 |---|---|---|
 | **M1 — Fundação e núcleo** | ✅ Concluído | Testes `snapshot.rs` e `sync.rs::full_flow_*`; demonstração ao vivo com dois Agents reais. |
-| **M2 — Automação e aplicativo completo** | ✅ Concluído no Windows | 47 testes Rust e 4 de UI; app de release iniciado com o Agent via IPC; fluxo A→B→A sem comandos Git. |
-| **M3 — Estabilização e distribuição** | 🟡 Parcial | Instaladores Windows gerados localmente; CI e release escritos, mas **ainda não executados** (repositório sem remoto GitHub). Linux não executado. |
+| **M2 — Automação e aplicativo completo** | ✅ Concluído | Testes Rust e de UI (ver abaixo) verdes no Windows e no Linux; app de release iniciado com o Agent via IPC; fluxo A→B→A sem comandos Git. |
+| **M3 — Estabilização e distribuição** | 🟡 Quase concluído | CI verde no GitHub em Windows e Linux a cada push; licença MIT; instaladores Windows gerados localmente e release 0.1.0 em rascunho pelo workflow (Windows + Linux). Falta o teste com dois computadores reais e a instalação em máquina limpa. |
 
 ## Recursos
 
@@ -40,41 +40,47 @@ Git 2.55 (Windows), MSVC 14.51, WebView2 156.
 | Agent independente: IPC, watcher, scheduler, instância única | ✅ | `crates/agent/tests/agent.rs`; o app inicia o Agent sozinho. |
 | Identidade persistente de dispositivo e renomeação | ✅ | `migrates_and_persists`, demonstração. |
 | SQLite com migrações | ✅ | `db.rs` testes. |
-| Token no cofre do SO e askpass restrito ao github.com | 🟡 | Lógica testada (`askpass_only_answers_github`). **Não testado contra o GitHub real** (requer credenciais do usuário). |
-| GitHub: validar token, listar e criar repositórios | 🟡 | Implementado; **não executado** contra a API real nesta sessão. |
-| Login GitHub pelo navegador (device flow) | 🟡 | Implementado; exige o client id de um OAuth App registrado (decisão/serviço externo). Configurável em Configurações. |
-| Interface desktop (10 telas) | 🟡 | Compila (tsc estrito), build do Vite OK, app abre e chama o Agent. **Inspeção visual tela a tela não realizada.** |
+| Token no cofre do SO e askpass restrito ao github.com | ✅ | `askpass_only_answers_github`; em uso real: login do GitHub feito pelo app e checkpoints deste repositório enviados ao GitHub (`refs/continuity/checkpoints/*` no remoto). |
+| GitHub: validar token, listar e criar repositórios | 🟡 | Validação do token e conta conectada exercitadas em uso real; listar/criar repositório não foram exercitados contra a API real. |
+| Login GitHub pelo navegador (device flow) | ✅ | Usado em uso real (conta conectada em Ajustes). O client id do OAuth App é configurável. |
+| Interface desktop (10 telas) | ✅ | tsc estrito, build do Vite, testes da lógica de status (`status.test.ts`, `format.test.ts`, `motion.test.ts`) e revisão visual das telas no app em 2026-10-31. |
 | Animações e modo desempenho | ✅ | Transições de página, entrada escalonada de listas e feedback de hover/clique só com `opacity`/`transform`; **Ajustes → Aparência → Modo desempenho** desliga tudo (`data-motion="off"`), salvo por computador e aplicado antes da primeira pintura. Testes `motion.test.ts`; verificado no app (transição capturada a 40 ms) e no webview (`animationName: none` e transições 0 s com o modo ligado, inclusive após recarregar). |
 | Terceira auditoria de segurança | ✅ | 4 achados corrigidos (configuração Git do projeto não confiável, credenciais em URL, permissões do perfil no `--direct`, actions fixadas por SHA). Ver [AUDITORIA_SEGURANCA_3.md](../AUDITORIA_SEGURANCA_3.md#status-das-correções). |
-| Instaladores Windows (NSIS e MSI) | ✅ | Gerados localmente em `target/release/bundle`. A instalação via instalador não foi testada; as builds não são assinadas (por requisito). |
-| Pacotes Linux (deb, rpm, AppImage) | ⏳ | Configurados no `release.yml`; dependem da execução no CI. |
-| CI (Windows/Linux) e release em rascunho | ⏳ | Workflows escritos; não executados (sem remoto GitHub). |
+| Instaladores Windows (NSIS e MSI) | ✅ | Gerados localmente em `target/release/bundle` e pelo workflow de release. A instalação em máquina limpa não foi testada; as builds não são assinadas (por requisito). |
+| Pacotes Linux (deb, rpm, AppImage) | 🟡 | Gerados pelo workflow de release (tag `v0.1.0`, release em rascunho). Instalação em uma distribuição real não testada. |
+| CI (Windows/Linux) e release em rascunho | ✅ | CI verde a cada push em `main`; actions fixadas por SHA; release em rascunho, nunca publicado automaticamente. |
+| Licença | ✅ | MIT (`LICENSE`), declarada nos manifestos Cargo/npm e no instalador. |
 
 ## Testes executados (última execução)
 
-- `cargo test`: core 22 unitários + 6 snapshot + 18 sync; agent 1 → **47 passaram, 0 falharam**.
+- `cargo test`: **70 passaram no Windows** (core: 34 unitários, 6 snapshot, 26 sync, 3 política de workflows; agent: 1) e 71 no Linux (+1 só Unix), 0 falharam.
 - `cargo clippy --workspace --all-targets -- -D warnings`: limpo (inclui o crate Tauri).
-- `npm test` (vitest): 4 passaram; `npm run build`: OK.
-- `npx tauri build --bundles nsis,msi`: OK.
+- `npm test` (vitest): 12 passaram; `npm run build`: OK.
+- CI no GitHub (Windows e Linux): verde; no Linux roda também o teste de permissões do perfil (só Unix).
 - Demonstração ao vivo: dois Agents (`CONTINUITY_DATA_DIR` isolados) + CLI, fluxo A→B (com staging) → `sync-and-quit` → A.
 
 ## Problemas encontrados e corrigidos
 
 - Deadlock: o guard do mutex do SQLite ficava vivo em `match`/closure (`sync_and_shutdown`, `process_queue`). Foi corrigido e coberto por testes; a regra foi registrada no AGENTS.md.
 - Fixture de teste clonava com o `autocrlf` do sistema; os testes agora fixam a configuração e há um teste dedicado a EOL.
+- Revisão visual (2026-10-31): a tela Ajustes mostrava "Conectado" com um token do GitHub já revogado, e o push falhava só com a mensagem do Git. Agora `github.status` confere o token ao vivo (`token_valid`), Ajustes avisa para reconectar e a fila diz o que fazer (`rejected_github_login_names_the_fix`).
+- Um teste continha um token falso literal, e o próprio Elo, sincronizando este repositório, colocou o checkpoint em quarentena. O teste agora gera o valor em tempo de execução, como os demais.
+- Leitura em lote com `cat-file --batch --filters` revertida: o Git informa o tamanho sem conversão de EOL, e o teste `eol_conversion_*` detectou a divergência.
 
 ## Limitações conhecidas
 
 - Submódulos (gitlinks) não são sincronizados; são reportados como ignorados.
-- Restaurar ou aplicar muitos arquivos executa um processo `git` por arquivo, o que é lento em projetos enormes (ver ROADMAP).
+- Restaurar ou aplicar muitos arquivos executa um processo `git` por arquivo, o que é lento em projetos enormes. A leitura em lote foi tentada e revertida: no Git 2.55, `cat-file --batch --filters` informa no cabeçalho o tamanho **sem** conversão de fim de linha e envia o conteúdo **convertido**, então não é possível separar os arquivos com segurança (o teste `eol_conversion_*` detectou isso).
 - Em Linux, repositórios muito grandes podem esgotar o limite de inotify. O Agent registra o erro e passa a depender só da reconciliação periódica.
 - A varredura de segredos cobre o estado publicado, não cada commit intermediário não enviado.
 - `git log --all` exibe os commits de checkpoint (eles ficam em `refs/continuity/*`).
 - O nome do dispositivo (hostname) vai nos metadados dos checkpoints enviados ao remoto; pode ser alterado.
+- Projetos cujo `.git/config` define filtros ou helpers (inclusive `git lfs install --local`) ficam pausados até essas chaves irem para a configuração global; a mensagem indica o comando. `core.sshCommand` do projeto é ignorado (use `~/.ssh/config`).
+- Nomes internos mantêm o nome antigo do projeto: binários `continuity`/`continuity-agent`, variáveis `CONTINUITY_*` e refs `refs/continuity/*` (mudar as refs exigiria migração dos remotos).
 
 ## Próximas ações
 
-1. Publicar o repositório no GitHub e rodar o CI (valida Linux e os pacotes .deb/.rpm/AppImage).
-2. Revisão visual da UI no app e teste do instalador em uma máquina limpa.
-3. Validar o fluxo com um repositório GitHub real (token pessoal) e, se desejado, registrar um OAuth App.
-4. Decidir a licença (MIT ou Apache-2.0) e a marca.
+1. Testar o fluxo completo com **dois computadores reais** usando o GitHub (instalar a 0.1.0 no segundo PC, clonar e aplicar um checkpoint).
+2. Instalar os pacotes em máquinas limpas (Windows sem ferramentas de desenvolvimento; Ubuntu/Fedora) e então publicar o rascunho do release.
+3. Leitura em lote para aplicar/restaurar projetos enormes, contornando o comportamento do `cat-file --batch --filters` (por exemplo, com índice temporário + `checkout-index --prefix`).
+4. Dividir `engine.rs` (≈1.770 linhas) por área: projetos, checkpoints, transporte, aplicação, GitHub.

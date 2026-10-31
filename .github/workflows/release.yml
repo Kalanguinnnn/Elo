@@ -57,7 +57,7 @@ jobs:
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
-          releaseName: "Continuity ${{ github.ref_name }} (beta)"
+          releaseName: "Elo ${{ github.ref_name }} (beta)"
           releaseBody: "Build beta não assinada. Veja docs/INSTALL.md."
           releaseDraft: true
           prerelease: true

@@ -13,6 +13,7 @@ import ActivityPage from "./pages/Activity";
 import SettingsPage from "./pages/Settings";
 import About from "./pages/About";
 import { Dot, EloLogo } from "./brand";
+import { health } from "./status";
 import { IconDevices, IconFolder, IconInfo, IconMerge, IconPulse, IconSliders } from "./icons";
 
 export type Route =
@@ -37,18 +38,6 @@ const NAV: { page: Route["page"]; label: string; icon: () => JSX.Element }[] = [
   { page: "settings", label: "Ajustes", icon: IconSliders },
   { page: "about", label: "Sobre", icon: IconInfo },
 ];
-
-/** One-line health summary for the sidebar, from real project status. */
-function health(list: ProjectStatus[] | null, error: string | null): { tone: "ok" | "warn" | "err" | "info" | "idle"; text: string } {
-  if (error && !list) return { tone: "err", text: "Agent indisponível" };
-  if (!list) return { tone: "idle", text: "Conectando…" };
-  if (!list.length) return { tone: "idle", text: "Nenhum projeto" };
-  if (list.some((p) => p.open_conflicts || p.quarantined || p.unsafe_config)) return { tone: "err", text: "Requer sua atenção" };
-  if (list.some((p) => p.queue_failure_kind === "offline")) return { tone: "warn", text: "Offline — na fila" };
-  if (list.some((p) => p.incoming)) return { tone: "info", text: "Atualizações disponíveis" };
-  if (list.some((p) => p.pending_push || p.needs_review)) return { tone: "warn", text: "Envio pendente" };
-  return { tone: "ok", text: "Tudo em dia" };
-}
 
 /** Remount (and replay the entrance animation) only when the user actually moves. */
 function routeKey(r: Route): string {

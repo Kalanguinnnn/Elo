@@ -279,10 +279,16 @@ impl Git {
         )?;
         let bad = repo_hazards(&out.stdout);
         if bad.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::UnsafeRepoConfig(bad.join(", ")))
+            return Ok(());
         }
+        let mut msg = format!(
+            "{}. O Elo não opera neste projeto até essas chaves saírem do .git/config (se confiar nelas, mova-as para a configuração global com git config --global)",
+            bad.join(", ")
+        );
+        if bad.iter().any(|k| k.to_ascii_lowercase().starts_with("filter.lfs.")) {
+            msg.push_str(". Para o Git LFS: rode `git lfs install` e depois `git config --local --remove-section filter.lfs` nesta pasta");
+        }
+        Err(Error::UnsafeRepoConfig(msg))
     }
 
     pub fn run_text(&self, args: &[&OsStr]) -> Result<String> {

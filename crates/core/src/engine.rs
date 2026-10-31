@@ -1612,12 +1612,13 @@ impl Engine {
                         Error::Invalid(_) | Error::NotFound(_) => FailureKind::Other,
                         _ => e.failure_kind(),
                     };
-                    self.db().queue_failed(item.id, &e.to_string(), kind)?;
-                    self.db().set_project_error(&p.id, Some(&e.to_string()))?;
+                    let text = if kind == FailureKind::Auth { self.auth_failure_text(&p, &e) } else { e.to_string() };
+                    self.db().queue_failed(item.id, &text, kind)?;
+                    self.db().set_project_error(&p.id, Some(&text))?;
                     if item.attempts == 0 {
                         let msg = match kind {
                             FailureKind::Offline => format!("Sem conexão com o remoto; envio ficará na fila e será repetido ({e})"),
-                            FailureKind::Auth => format!("Credenciais recusadas pelo remoto ({e})"),
+                            FailureKind::Auth => text.clone(),
                             _ => format!("Falha ao sincronizar: {e}"),
                         };
                         self.log(Some(&p.id), "warn", "queue_failed", &msg);
@@ -1626,6 +1627,13 @@ impl Engine {
             }
         }
         Ok(ok)
+    }
+
+    /// Name the fix for a rejected login instead of only Git's message.
+    fn auth_failure_text(&self, p: &Project, e: &Error) -> String {
+        let url = self.open_git(p).ok().and_then(|g| g.config_get(&format!("remote.{}.url", p.remote)).ok().flatten());
+        let github = url.as_deref().is_some_and(credentials::is_github_https);
+        auth_failure_hint(github, self.github_token().ok().flatten().is_some(), e)
     }
 
     pub fn queue(&self) -> Result<Vec<crate::db::QueueItem>> {
@@ -1740,6 +1748,14 @@ impl Engine {
     }
 }
 
+fn auth_failure_hint(github: bool, has_token: bool, e: &Error) -> String {
+    match (github, has_token) {
+        (false, _) => format!("Credenciais recusadas pelo remoto ({e})"),
+        (true, true) => format!("O GitHub recusou o token do Elo (revogado ou expirado); reconecte a conta em Ajustes → GitHub. Detalhe: {e}"),
+        (true, false) => format!("O GitHub pediu login; conecte a conta em Ajustes → GitHub. Detalhe: {e}"),
+    }
+}
+
 fn bytes_view(data: &[u8], size: u64, oid: Option<String>) -> FileView {
     let binary = data.iter().take(8000).any(|b| *b == 0) || std::str::from_utf8(data).is_err() && size <= VIEW_LIMIT;
     let truncated = size > VIEW_LIMIT;
@@ -1760,5 +1776,19 @@ fn disk_view(root: &Path, rel: &str) -> Result<FileView> {
             Ok(FileView { exists: true, binary: false, size: t.len() as u64, oid: None, text: Some(t), truncated: false })
         }
         _ => Ok(FileView { exists: false, binary: false, size: 0, oid: None, text: None, truncated: false }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejected_github_login_names_the_fix() {
+        let e = Error::Git { args: "push".into(), code: Some(128), stderr: "remote: Invalid username or token.".into() };
+        assert!(auth_failure_hint(true, true, &e).contains("reconecte a conta em Ajustes"));
+        assert!(auth_failure_hint(true, false, &e).contains("conecte a conta em Ajustes"));
+        let other = auth_failure_hint(false, true, &e);
+        assert!(other.starts_with("Credenciais recusadas pelo remoto") && other.contains("Invalid username"));
     }
 }

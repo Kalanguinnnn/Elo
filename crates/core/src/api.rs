@@ -251,8 +251,11 @@ pub fn dispatch(e: &Engine, method: &str, params: Value) -> Result<Value> {
         "ide.check" => ok(e.ide_check(&p::<ProjectId>(params)?.project_id)),
         "github.status" => {
             let s = e.settings()?;
+            let token = e.github_token()?;
             ok(json!({
-                "connected": e.github_token()?.is_some(),
+                "connected": token.is_some(),
+                // Checked live: a stored login says nothing about a revoked token.
+                "token_valid": token.as_deref().and_then(crate::github::token_accepted),
                 "login": e.github_login()?,
                 "device_flow_available": !s.effective_client_id().is_empty(),
                 "askpass_available": e.askpass_available(),

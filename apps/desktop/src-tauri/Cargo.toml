@@ -1,9 +1,11 @@
 [package]
 name = "continuity-desktop"
-description = "Continuity desktop app (Tauri 2). A thin client of the Agent."
+description = "Elo desktop app (Tauri 2). A thin client of the Agent."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [lib]
 name = "continuity_desktop_lib"

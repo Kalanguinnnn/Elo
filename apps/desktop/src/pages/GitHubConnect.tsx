@@ -5,6 +5,8 @@ import { Notice, useAction, useLoad } from "../ui";
 
 interface Status {
   connected: boolean;
+  /** Live check: false = GitHub rejects the stored token; null = unreachable. */
+  token_valid: boolean | null;
   login: string | null;
   device_flow_available: boolean;
   askpass_available: boolean;
@@ -150,6 +152,9 @@ export default function GitHubConnect({ onChange }: { onChange?: () => void }) {
         <div className="grow">
           <strong>Conectado como {st.data.login ?? "(conta GitHub)"}</strong>
           <div className="muted small">O token está no cofre do sistema e só é entregue ao Git para github.com.</div>
+          {st.data.token_valid === false && (
+            <div className="notice error">O GitHub recusou o token salvo (revogado ou expirado). Desconecte e entre de novo para voltar a sincronizar.</div>
+          )}
         </div>
         <button onClick={logout} disabled={act.busy}>Desconectar</button>
         <Notice error={act.error} message={act.message} />
